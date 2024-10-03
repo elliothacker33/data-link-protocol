@@ -20,6 +20,7 @@
 #define TRUE 1
 
 #define BUF_SIZE 1
+#define PACKET_SIZE 5
 
 #define FLAG 0x7E
 #define ADDRESS_SENDER 0x03
@@ -105,8 +106,9 @@ int main(int argc, char *argv[])
 
     // Loop for input
     unsigned char buf[BUF_SIZE] = {0}; // +1: Save space for the final '\0' char
-
+    unsigned char packet[PACKET_SIZE] = {0};
     State state = START;
+
     while (STOP == FALSE)
     {
         // Returns after 5 chars have been input
@@ -116,6 +118,7 @@ int main(int argc, char *argv[])
         case START:
             if (buf[0] == FLAG)
             {
+                packet[0] = buf;
                 state = FLAG_RCV;
             }
             break;
@@ -123,6 +126,7 @@ int main(int argc, char *argv[])
             if (buf[0] == ADDRESS_SENDER)
             {
                 state = A_RCV;
+                packet[1] = buf;
                 break;
             }
             else if (buf[0] != FLAG)
@@ -132,6 +136,7 @@ int main(int argc, char *argv[])
             if (buf[0] == CONTROL_SET)
             {
                 state = C_RCV;
+                packet[2] = buf;
                 break;
             }
             else if (buf[0] != FLAG)
@@ -143,6 +148,7 @@ int main(int argc, char *argv[])
             if (buf[0] == (ADDRESS_SENDER ^ CONTROL_SET))
             {
                 state = BCC_OK;
+                packet[3] = buf;
                 break;
             }
             else if (buf[0] != FLAG)
@@ -154,6 +160,7 @@ int main(int argc, char *argv[])
             if (buf[0] == FLAG)
             {
                 STOP = TRUE;
+                packet[4] = buf;
                 break;
             }
             else
