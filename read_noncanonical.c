@@ -6,8 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -19,25 +19,25 @@
 #define FALSE 0
 #define TRUE 1
 
-#define BUF_SIZE 1
+#define SET 0x03
+#define UA  0x07
+#define SENDER_ADDR 0x03
+#define RECEIVER_ADDR 0x01
+#define FLAG 0x7E
+
+#define BUF_SIZE 256
 #define PACKET_SIZE 5
 
-#define FLAG 0x7E
-#define ADDRESS_SENDER 0x03
-#define ADDRESS_RECEIVER 0x01
-#define CONTROL_SET 0x03
-#define CONTROL_UA 0x07
-
-volatile int STOP = FALSE;
-
-typedef enum State
-{
-    START,
+enum{
+    START_STATE,
     FLAG_RCV,
     A_RCV,
     C_RCV,
     BCC_OK,
-} State;
+    STOP_STATE
+};
+
+volatile int STOP = FALSE;
 
 int main(int argc, char *argv[])
 {
@@ -46,11 +46,11 @@ int main(int argc, char *argv[])
 
     if (argc < 2)
     {
-        printf(
-            "Incorrect program usage\n"
-            "Usage: %s <SerialPort>\n"
-            "Example: %s /dev/ttyS1\n",
-            argv[0], argv[0]);
+        printf("Incorrect program usage\n"
+               "Usage: %s <SerialPort>\n"
+               "Example: %s /dev/ttyS1\n",
+               argv[0],
+               argv[0]);
         exit(1);
     }
 
@@ -103,73 +103,113 @@ int main(int argc, char *argv[])
     }
 
     printf("New termios structure set\n");
+    /**/
+    
+    unsigned char buf[6] = {0};
+    int totalBytes = 0; 
 
-    // Loop for input
-    unsigned char buf[BUF_SIZE] = {0}; // +1: Save space for the final '\0' char
-    unsigned char packet[PACKET_SIZE] = {0};
-    State state = START;
+    while (STOP == FALSE) {
 
-    while (STOP == FALSE)
-    {
-        // Returns after 5 chars have been input
-        int bytes = read(fd, buf, BUF_SIZE);
-        switch (state)
-        {
-        case START:
-            if (buf[0] == FLAG)
-            {
-                packet[0] = buf;
-                state = FLAG_RCV;
+    int bytes = read(fd, buf + totalBytes, 5 - totalBytes);
+    
+    if (bytes > 0) {
+        totalBytes += bytes;  
+        if (totalBytes >= 5) {
+            buf[totalBytes] = '\0';
+            printf(":%s:%d\n", buf, totalBytes);
+            STOP = TRUE;         
             }
-            break;
-        case FLAG_RCV:
-            if (buf[0] == ADDRESS_SENDER)
-            {
-                state = A_RCV;
-                packet[1] = buf;
-                break;
-            }
-            else if (buf[0] != FLAG)
-                state = START;
-            break;
-        case A_RCV:
-            if (buf[0] == CONTROL_SET)
-            {
-                state = C_RCV;
-                packet[2] = buf;
-                break;
-            }
-            else if (buf[0] != FLAG)
-            {
-                state = START;
-            }
-            break;
-        case C_RCV:
-            if (buf[0] == (ADDRESS_SENDER ^ CONTROL_SET))
-            {
-                state = BCC_OK;
-                packet[3] = buf;
-                break;
-            }
-            else if (buf[0] != FLAG)
-            {
-                state = START;
-            }
-            break;
-        case BCC_OK:
-            if (buf[0] == FLAG)
-            {
-                STOP = TRUE;
-                packet[4] = buf;
-                break;
-            }
-            else
-            {
-                state = START;
-            }
-            break;
         }
     }
+
+    // Receiving set message
+    unsigned char set_packet[PACKET_SIZE] = {0}; 
+    unsigned char buf_read = 0;
+    int state = 0;
+
+
+     while (state != STOP_STATE){
+
+        int bytes = read(fd, &buf_read, 1); // Bytes read.
+
+        if (bytes > 0){
+            switch (state){
+                case START_STATE:
+                    if (buf_read == 0x7E){
+                        set_packet[0] = buf_read;
+                        state = FLAG_RCV;
+                    }
+                    break;
+                case FLAG_RCV:
+                    if (buf_read == 0x03){
+                        set_packet[1] = buf_read;
+                        state = A_RCV;
+                    }
+                    else if (buf_read != 0x7E){
+                        state = START_STATE;
+                    }
+                    break;
+                case A_RCV:
+                    if (buf_read == 0x03){
+                        set_packet[2] = buf_read;
+                        state = C_RCV;
+                    }
+                    else if (buf_read == 0x7E){
+                        state = FLAG_RCV;
+                    }
+                    else{
+                        state = START_STATE;
+                    }
+                    break;
+                case C_RCV:
+                    if (buf_read == (set_packet[1]^set_packet[2])){
+                        set_packet[3] = buf_read;
+                        state = BCC_OK;
+                    }
+                    else if (buf_read == 0x7E){
+                        state = FLAG_RCV;
+                    }
+                    else{
+                        state = START_STATE;
+                    }
+                    break;
+                case BCC_OK:
+                    if (buf_read == 0x7E){
+                        set_packet[4] = buf_read;
+                        state = STOP_STATE;
+                    }
+                    else{
+                        state = START_STATE;
+                    }
+                    break;
+                default:
+                    state = START_STATE;
+            }
+        }
+    
+    }
+    // Print set packet 
+    printf("Receiveing Set packet \n");
+    printf("flag = %02X\n", set_packet[0]);
+    printf("sender_addr = %02X\n", set_packet[1]);
+    printf("control = %02X\n", set_packet[2]);
+    printf("bcc1 = %02X\n", set_packet[3]);
+    printf("flag = %02X\n", set_packet[4]);
+
+    // Sending UA message
+    unsigned char ua_packet [5] = {0};
+    ua_packet[0] = FLAG;
+    ua_packet[1] = SENDER_ADDR;
+    ua_packet[2] = UA;
+    ua_packet[3] = ua_packet[1]^ua_packet[2];
+    ua_packet[4] = FLAG;
+    int bytes = write(fd, ua_packet, PACKET_SIZE);
+
+    if (bytes < 0){
+        perror("Write packet failed\n");
+        exit(-1);
+    }
+    printf("UA message sent successfully \n");
 
     // The while() cycle should be changed in order to respect the specifications
     // of the protocol indicated in the Lab guide

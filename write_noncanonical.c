@@ -19,9 +19,26 @@
 #define FALSE 0
 #define TRUE 1
 
+#define SET 0x03
+#define UA  0x07
+#define SENDER_ADDR 0x03
+#define RECEIVER_ADDR 0x01
+#define FLAG 0x7E
+
+
 #define BUF_SIZE 256
+#define PACKET_SIZE 5
 
 volatile int STOP = FALSE;
+
+enum{
+    START_STATE,
+    FLAG_RCV,
+    A_RCV,
+    C_RCV,
+    BCC_OK,
+    STOP_STATE
+};
 
 int main(int argc, char *argv[])
 {
@@ -68,7 +85,7 @@ int main(int argc, char *argv[])
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
+    newtio.c_cc[VMIN] = 0;  // Blocking read until 5 chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -88,22 +105,120 @@ int main(int argc, char *argv[])
     }
 
     printf("New termios structure set\n");
-
+    
+     // 1º - First test this. Result will be abcde.
+    
     // Create string to send
-    unsigned char buf[BUF_SIZE] = {0};
+    unsigned char buf[5] = {0};
 
-    for (int i = 0; i < BUF_SIZE; i++)
+    for (int i = 0; i < 5; i++)
     {
         buf[i] = 'a' + i % 26;
     }
 
-    // In non-canonical mode, '\n' does not end the writing.
-    // Test this condition by placing a '\n' in the middle of the buffer.
-    // The whole buffer must be sent even with the '\n'.
+    // In canonical mode, strings must end with '\n'
     buf[5] = '\n';
+    
 
-    int bytes = write(fd, buf, BUF_SIZE);
-    printf("%d bytes written\n", bytes);
+    int bytes = write(fd, buf, 5);
+    
+    printf("Bytes written = %d\n", bytes);
+    
+    
+    
+
+    // 2º - Second test. Build a SET message.
+
+    unsigned char set_packet[PACKET_SIZE]; // 5 bytes message.
+
+    set_packet[0] = FLAG;
+    set_packet[1] = SENDER_ADDR; // Sender address
+    set_packet[2] = SET;  // Control
+    set_packet[3] = set_packet[1]^set_packet[2]; // BCC1
+    set_packet[4] = FLAG;
+
+    bytes = write(fd, set_packet, PACKET_SIZE); // Bytes written.
+
+    if (bytes < 0){
+        perror("Write packet failed\n");
+        exit(-1);
+    }
+
+    printf("SET message sent\n");
+
+    unsigned char ua_packet[PACKET_SIZE] = {0}; 
+    unsigned char buf_read = 0;
+
+    int state = 0;
+
+    while (state != STOP_STATE){
+        bytes = read(fd, &buf_read, 1); // Bytes read.
+
+        if (bytes > 0){
+            switch (state){
+                case START_STATE:
+                    if (buf_read == 0x7E){
+                        ua_packet[0] = buf_read;
+                        state = FLAG_RCV;
+                    }
+                    break;
+                case FLAG_RCV:
+                    if (buf_read == 0x03){
+                        ua_packet[1] = buf_read;
+                        state = A_RCV;
+                    }
+                    else if (buf_read != 0x7E){
+                        state = START_STATE;
+                    }
+                    break;
+                case A_RCV:
+                    if (buf_read == 0x07){
+                        ua_packet[2] = buf_read;
+                        state = C_RCV;
+                    }
+                    else if (buf_read == 0x7E){
+                        state = FLAG_RCV;
+                    }
+                    else{
+                        state = START_STATE;
+                    }
+                    break;
+                case C_RCV:
+                    if (buf_read == (ua_packet[1]^ua_packet[2])){
+                        ua_packet[3] = buf_read;
+                        state = BCC_OK;
+                    }
+                    else if (buf_read == 0x7E){
+                        state = FLAG_RCV;
+                    }
+                    else{
+                        state = START_STATE;
+                    }
+                    break;
+                case BCC_OK:
+                    if (buf_read == 0x7E){
+                        ua_packet[4] = buf_read;
+                        state = STOP_STATE;
+                    }
+                    else{
+                        state = START_STATE;
+                    }
+                    break;
+                default:
+                    state = START_STATE;
+            }
+        }
+    
+    }
+
+    // Print ua packet
+
+    printf("Receiveing UA packet \n");
+    printf("flag = %02X\n", ua_packet[0]);
+    printf("sender_addr = %02X\n", ua_packet[1]);
+    printf("control = %02X\n", ua_packet[2]);
+    printf("bcc1 = %02X\n", ua_packet[3]);
+    printf("flag = %02X\n", ua_packet[4]);
 
     // Wait until all bytes have been written to the serial port
     sleep(1);
