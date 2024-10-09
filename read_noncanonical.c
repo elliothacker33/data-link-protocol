@@ -112,9 +112,8 @@ int main(int argc, char *argv[])
     while (STOP == FALSE)
     {
         // Returns after 5 chars have been input
-        printf("Waiting for input...\n");
         int bytes = read(fd, buf, BUF_SIZE);
-        printf("Bytes read: %d\n", bytes);
+
         switch (state)
         {
         case START:
@@ -177,19 +176,20 @@ int main(int argc, char *argv[])
     printf("Packet received: \n");
     for (int i = 0; i < PACKET_SIZE; i++)
     {
-        printf("%x ", packet[i]);
+        printf("Byte: 0x%02X\n", packet[i]);
     }
 
     // send UA
     unsigned char response_ua_packet[5] = {
         FLAG,
-        ADDRESS_RECEIVER,
+        ADDRESS_SENDER,
         CONTROL_UA,
-        (ADDRESS_RECEIVER ^ CONTROL_UA),
+        (ADDRESS_SENDER ^ CONTROL_UA),
         FLAG
     };
 
-    write(fd, response_ua_packet, PACKET_SIZE);
+    int bytes = write(fd, response_ua_packet, PACKET_SIZE);
+    printf("UA packet response (%d bytes) sent\n", bytes);
 
     // The while() cycle should be changed in order to respect the specifications
     // of the protocol indicated in the Lab guide

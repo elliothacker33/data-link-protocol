@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
+#include <signal.h>
 
 // Baudrate settings are defined in <asm/termbits.h>, which is
 // included by <termios.h>
@@ -29,6 +30,9 @@
 #define CONTROL_SET 0x03
 #define CONTROL_UA 0x07
 
+int alarmEnabled = FALSE;
+int alarmCount = 0;
+
 volatile int STOP = FALSE;
 
 typedef enum State
@@ -39,6 +43,15 @@ typedef enum State
     C_RCV,
     BCC_OK,
 } State;
+
+// Alarm function handler
+void alarmHandler(int signal)
+{
+    alarmEnabled = FALSE;
+    alarmCount++;
+
+    printf("Alarm #%d\n", alarmCount);
+}
 
 int main(int argc, char *argv[])
 {
@@ -85,7 +98,7 @@ int main(int argc, char *argv[])
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 1;  // Blocking read until 5 chars received
+    newtio.c_cc[VMIN] = 0;  // Blocking read until 5 chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -109,13 +122,24 @@ int main(int argc, char *argv[])
     // Create string to send
     unsigned char initial_set_packet[PACKET_SIZE] = {
         FLAG,
-        ADDRESS_RECEIVER,
+        ADDRESS_SENDER,
         CONTROL_SET,
-        (ADDRESS_RECEIVER ^ CONTROL_SET),
+        (ADDRESS_SENDER ^ CONTROL_SET),
         FLAG};
 
+    // Set alarm function handler
+    (void)signal(SIGALRM, alarmHandler);
+
+    while (alarmCount < 3)
+    {
+        if (alarmEnabled == FALSE)
+        {
+            alarm(3); // Set alarm to be triggered in 3s
+            alarmEnabled = TRUE;
+        }
+    }
     int bytes = write(fd, initial_set_packet, PACKET_SIZE);
-    printf("%d bytes written\n", bytes);
+    printf("Packet SET (%d bytes) written\n", bytes);
 
     // Wait until all bytes have been written to the serial port
     sleep(1);
@@ -191,7 +215,7 @@ int main(int argc, char *argv[])
     printf("Packet received: \n");
     for (int i = 0; i < PACKET_SIZE; i++)
     {
-        printf("%x \n", packet[i]);
+        printf("Byte: 0x%02X\n", packet[i]);
     }
 
     // Restore the old port settings
