@@ -130,27 +130,24 @@ int main(int argc, char *argv[])
     // Set alarm function handler
     (void)signal(SIGALRM, alarmHandler);
 
-    while (alarmCount < 3)
-    {
-        if (alarmEnabled == FALSE)
-        {
-            alarm(3); // Set alarm to be triggered in 3s
-            alarmEnabled = TRUE;
-        }
-    }
-    int bytes = write(fd, initial_set_packet, PACKET_SIZE);
-    printf("Packet SET (%d bytes) written\n", bytes);
-
-    // Wait until all bytes have been written to the serial port
-    sleep(1);
-
     // Loop for input
     unsigned char buf[BUF_SIZE] = {0}; // +1: Save space for the final '\0' char
     unsigned char packet[PACKET_SIZE] = {0};
     State state = START;
 
-    while (STOP == FALSE)
+    while (STOP == FALSE && alarmCount < 4)
     {
+        if (alarmEnabled == FALSE)
+        {
+            alarm(3); // Set alarm to be triggered in 3s
+            alarmEnabled = TRUE;
+            int bytes = write(fd, initial_set_packet, PACKET_SIZE);
+            printf("Packet SET written\n");
+
+            // Wait until all bytes have been written to the serial port
+            sleep(1);
+        }
+
         // Returns after 5 chars have been input
         int bytes = read(fd, buf, BUF_SIZE);
         switch (state)
