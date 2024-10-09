@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 0;  // Blocking read until 5 chars received
+    newtio.c_cc[VMIN] = 1;  // Blocking read until 5 chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -112,13 +112,15 @@ int main(int argc, char *argv[])
     while (STOP == FALSE)
     {
         // Returns after 5 chars have been input
+        printf("Waiting for input...\n");
         int bytes = read(fd, buf, BUF_SIZE);
+        printf("Bytes read: %d\n", bytes);
         switch (state)
         {
         case START:
             if (buf[0] == FLAG)
             {
-                packet[0] = buf;
+                packet[0] = buf[0];
                 state = FLAG_RCV;
             }
             break;
@@ -126,7 +128,7 @@ int main(int argc, char *argv[])
             if (buf[0] == ADDRESS_SENDER)
             {
                 state = A_RCV;
-                packet[1] = buf;
+                packet[1] = buf[0];
                 break;
             }
             else if (buf[0] != FLAG)
@@ -136,7 +138,7 @@ int main(int argc, char *argv[])
             if (buf[0] == CONTROL_SET)
             {
                 state = C_RCV;
-                packet[2] = buf;
+                packet[2] = buf[0];
                 break;
             }
             else if (buf[0] != FLAG)
@@ -148,7 +150,7 @@ int main(int argc, char *argv[])
             if (buf[0] == (ADDRESS_SENDER ^ CONTROL_SET))
             {
                 state = BCC_OK;
-                packet[3] = buf;
+                packet[3] = buf[0];
                 break;
             }
             else if (buf[0] != FLAG)
@@ -160,7 +162,7 @@ int main(int argc, char *argv[])
             if (buf[0] == FLAG)
             {
                 STOP = TRUE;
-                packet[4] = buf;
+                packet[4] = buf[0];
                 break;
             }
             else
@@ -170,6 +172,24 @@ int main(int argc, char *argv[])
             break;
         }
     }
+
+    // Print packet
+    printf("Packet received: \n");
+    for (int i = 0; i < PACKET_SIZE; i++)
+    {
+        printf("%x ", packet[i]);
+    }
+
+    // send UA
+    unsigned char response_ua_packet[5] = {
+        FLAG,
+        ADDRESS_RECEIVER,
+        CONTROL_UA,
+        (ADDRESS_RECEIVER ^ CONTROL_UA),
+        FLAG
+    };
+
+    write(fd, response_ua_packet, PACKET_SIZE);
 
     // The while() cycle should be changed in order to respect the specifications
     // of the protocol indicated in the Lab guide

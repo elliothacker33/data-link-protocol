@@ -19,9 +19,26 @@
 #define FALSE 0
 #define TRUE 1
 
-#define BUF_SIZE 256
+#define BUF_SIZE 1
+
+#define PACKET_SIZE 5
+
+#define FLAG 0x7E
+#define ADDRESS_SENDER 0x03
+#define ADDRESS_RECEIVER 0x01
+#define CONTROL_SET 0x03
+#define CONTROL_UA 0x07
 
 volatile int STOP = FALSE;
+
+typedef enum State
+{
+    START,
+    FLAG_RCV,
+    A_RCV,
+    C_RCV,
+    BCC_OK,
+} State;
 
 int main(int argc, char *argv[])
 {
@@ -68,7 +85,7 @@ int main(int argc, char *argv[])
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
+    newtio.c_cc[VMIN] = 1;  // Blocking read until 5 chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -90,23 +107,92 @@ int main(int argc, char *argv[])
     printf("New termios structure set\n");
 
     // Create string to send
-    unsigned char buf[BUF_SIZE] = {0};
+    unsigned char initial_set_packet[PACKET_SIZE] = {
+        FLAG,
+        ADDRESS_RECEIVER,
+        CONTROL_SET,
+        (ADDRESS_RECEIVER ^ CONTROL_SET),
+        FLAG};
 
-    for (int i = 0; i < BUF_SIZE; i++)
-    {
-        buf[i] = 'a' + i % 26;
-    }
-
-    // In non-canonical mode, '\n' does not end the writing.
-    // Test this condition by placing a '\n' in the middle of the buffer.
-    // The whole buffer must be sent even with the '\n'.
-    buf[5] = '\n';
-
-    int bytes = write(fd, buf, BUF_SIZE);
+    int bytes = write(fd, initial_set_packet, PACKET_SIZE);
     printf("%d bytes written\n", bytes);
 
     // Wait until all bytes have been written to the serial port
     sleep(1);
+
+    // Loop for input
+    unsigned char buf[BUF_SIZE] = {0}; // +1: Save space for the final '\0' char
+    unsigned char packet[PACKET_SIZE] = {0};
+    State state = START;
+
+    while (STOP == FALSE)
+    {
+        // Returns after 5 chars have been input
+        int bytes = read(fd, buf, BUF_SIZE);
+        switch (state)
+        {
+        case START:
+            if (buf[0] == FLAG)
+            {
+                packet[0] = buf[0];
+                state = FLAG_RCV;
+            }
+            break;
+        case FLAG_RCV:
+            if (buf[0] == ADDRESS_SENDER)
+            {
+                state = A_RCV;
+                packet[1] = buf[0];
+                break;
+            }
+            else if (buf[0] != FLAG)
+                state = START;
+            break;
+        case A_RCV:
+            if (buf[0] == CONTROL_UA)
+            {
+                state = C_RCV;
+                packet[2] = buf[0];
+                break;
+            }
+            else if (buf[0] != FLAG)
+            {
+                state = START;
+            }
+            break;
+        case C_RCV:
+            if (buf[0] == (ADDRESS_SENDER ^ CONTROL_UA))
+            {
+                state = BCC_OK;
+                packet[3] = buf[0];
+                break;
+            }
+            else if (buf[0] != FLAG)
+            {
+                state = START;
+            }
+            break;
+        case BCC_OK:
+            if (buf[0] == FLAG)
+            {
+                STOP = TRUE;
+                packet[4] = buf[0];
+                break;
+            }
+            else
+            {
+                state = START;
+            }
+            break;
+        }
+    }
+
+    // print packet
+    printf("Packet received: \n");
+    for (int i = 0; i < PACKET_SIZE; i++)
+    {
+        printf("%x \n", packet[i]);
+    }
 
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
