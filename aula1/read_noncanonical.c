@@ -188,6 +188,7 @@ int main(int argc, char *argv[])
         }
     
     }
+
     // Print set packet 
     printf("Receiveing Set packet \n");
     printf("flag = %02X\n", set_packet[0]);
