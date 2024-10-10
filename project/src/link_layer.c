@@ -15,7 +15,7 @@ int llopen(LinkLayer connectionParameters)
         return -1;
     }
 
-    
+
 
     return 1;
 }
@@ -45,7 +45,6 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
-    // TODO
 
     int clstat = closeSerialPort();
     return clstat;
