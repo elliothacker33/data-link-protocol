@@ -88,8 +88,10 @@ int main(int argc, char *argv[]) {
 
     printf("New termios structure set\n");
 
+
+    // Each test must be run separately
        
-     // 1º - First test this. Result will be abcde.
+    // 1º - First test this. Result will be abcde.
     
     // Create string to send
     unsigned char buf[5] = {0};
@@ -112,7 +114,7 @@ int main(int argc, char *argv[]) {
     unsigned char ua_packet[PACKET_SIZE] = {0}; 
     unsigned char buf_read = 0;
     int state = 0;
-
+    int bytes;
     // Start communication process
     while (state != STOP_STATE && alarmCount < 3) {
         if (!alarmEnabled) {
@@ -171,7 +173,6 @@ int main(int argc, char *argv[]) {
                         ua_packet[4] = buf_read;
                         state = STOP_STATE;
                         alarm(0);
-                        alarmEnabled = FALSE;
                     } else {
                         state = START_STATE;
                     }
