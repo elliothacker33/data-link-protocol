@@ -117,6 +117,7 @@ void supervisionStateMachine(unsigned char byte, int* state, unsigned char* fram
             if (byte == FLAG){
                 frame[4] = byte;
                 (*state) = STOP_STATE;
+                alarm(0);
             }
             else{
                 (*state) = START_STATE;
@@ -374,6 +375,10 @@ int llclose(int showStatistics){
                 printf("No byte received\n");
             }
         }
+        if (alarmCount > nRetransmissions){
+            printf("ERROR:Timeout\n");
+        }
+        //TODO: PRINT FRAMES
     }
 
     free(frameBufferSend);
