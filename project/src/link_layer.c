@@ -3,6 +3,7 @@
 #include "serial_port.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <signal.h>
 
 // MISC
@@ -11,8 +12,8 @@
 LinkLayerRole role;
 int timeout;
 int nRetransmissions;
+int alarmRinging = FALSE;
 int alarmCount = 0;
-int alarmEnabled = FALSE;
 
 // Definitions
 
@@ -22,7 +23,8 @@ int alarmEnabled = FALSE;
 // Booleans
 #define FALSE 0
 #define TRUE 1
-
+// Sizes
+#define FRAME_SIZE_S 5
 // Flag
 #define FLAG 0x7E // Initial and Final delimiter flag
 
@@ -55,24 +57,28 @@ typedef struct {
     int bytes;
 } Frame;
 
-enum State {
+typedef enum
+{
     START_STATE,
     FLAG_RCV,
-    A_RCV,
-    C_RCV,
-    BCC_OK,
+    ADDR_RCV,
+    CTRL_RCV,
+    BCC1_RCV,
+    DATA_RCV,
+    BCC2_RCV,
+    ESC_OCT_RCV,
     STOP_STATE
-};
+} State;
 
-// Alarm function handler
-void alarmHandler(int signal) {
-    alarmEnabled = FALSE;
+void alarmHandler(int signal)
+{
+    // Alarm enabled means that the alarm got triggered (time set expired)
+    alarmRinging = FALSE;
     alarmCount++;
     printf("Alarm #%d\n", alarmCount);
 }
 
 void supervisionStateMachine(unsigned char byte, int* state, unsigned char* frame, const Frame* frameParameters){
-    printf("Supervision mode\n");
     switch (*state){
         case START_STATE:
             if (byte == FLAG){
@@ -81,18 +87,18 @@ void supervisionStateMachine(unsigned char byte, int* state, unsigned char* fram
             }
             break;
         case FLAG_RCV:
-            if (byte == frameParameters->control){
+            if (byte == frameParameters->address){
                 frame[1] = byte;
-                (*state) = A_RCV;
+                (*state) = ADDR_RCV;
             }
             else if (byte != FLAG){
                 (*state) = START_STATE;
             }
             break;
-        case A_RCV:
-            if (byte == frameParameters->address){
+        case ADDR_RCV:
+            if (byte == frameParameters->control){
                 frame[2] = byte;
-                (*state) = C_RCV;
+                (*state) = CTRL_RCV;
             }
             else if (byte == FLAG){
                 (*state) = FLAG_RCV;
@@ -101,10 +107,10 @@ void supervisionStateMachine(unsigned char byte, int* state, unsigned char* fram
                 (*state) = START_STATE;
             }
             break;
-        case C_RCV:
+        case CTRL_RCV:
             if (byte == (frame[1]^frame[2])){
                 frame[3] = byte;
-                (*state) = BCC_OK;
+                (*state) = BCC1_RCV;
             }
             else if (byte == FLAG){
                 (*state) = FLAG_RCV;
@@ -113,7 +119,7 @@ void supervisionStateMachine(unsigned char byte, int* state, unsigned char* fram
                 (*state) = START_STATE;
             }
             break;
-        case BCC_OK:
+        case BCC1_RCV:
             if (byte == FLAG){
                 frame[4] = byte;
                 (*state) = STOP_STATE;
@@ -151,19 +157,10 @@ void buildFrameSu(unsigned char* frame, const Frame* frameParameters){
     frame[4] = FLAG;
 }
 
+void buildFrameInfo(unsigned char* frame, unsigned char* data, const Frame* frameParameters){}
 
 
-int buildFrame(unsigned char* frame, const Frame* frameParameters){
-    // Checking type of frame
-    if (frameParameters->type != INFO){
-        // Supervision / Unnumbered frames
-        buildFrameSu(frame, frameParameters);
-    }
-    else{
-        buildFrameInfo(frame,frameParameters);
-    }
-    return 0;
-}
+
 
 
 
@@ -173,13 +170,159 @@ int buildFrame(unsigned char* frame, const Frame* frameParameters){
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters)
 {
-    if (openSerialPort(connectionParameters.serialPort,connectionParameters.baudRate) < 0){
-        return -1;
+    int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
+    if (fd == ERROR)
+        return fd;
+
+    // Define parameters
+    role = connectionParameters.role;
+    timeout = connectionParameters.timeout;
+    nRetransmissions = connectionParameters.nRetransmissions;
+
+
+    State state = START_STATE;
+    unsigned char byte_read = 0;
+
+    struct sigaction sa;
+    sa.sa_handler = alarmHandler;
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGALRM, &sa, 0) == -1){
+        perror("ERROR: Setting signal handler\n");
+        exit(ERROR);
     }
 
+    if (role == LlTx)
+    {
 
+        while (state != STOP_STATE && alarmCount < nRetransmissions)
+        {
+            if (alarmRinging == FALSE)
+            {
+                alarm(timeout); // Set alarm for 3 seconds
+                alarmRinging = TRUE;
 
-    return 1;
+                // Send the SET message
+                unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, SET, A0 ^ SET, FLAG};
+                if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
+                {
+                    perror("Failed to write SET packet");
+                    exit(ERROR);
+                }
+            }
+
+            if (readByteSerialPort(&byte_read) > 0)
+            {
+                switch (state)
+                {
+                case START_STATE:
+                    if (byte_read == FLAG)
+                    {
+                        state = FLAG_RCV;
+                    }
+                    break;
+                case FLAG_RCV:
+                    if (byte_read == A0)
+                        state = ADDR_RCV;
+                    else if (byte_read != FLAG)
+                        state = START_STATE;
+                    break;
+                case ADDR_RCV:
+                    if (byte_read == UA)
+                        state = CTRL_RCV;
+                    else if (byte_read == FLAG)
+                        state = FLAG_RCV;
+                    else
+                        state = START_STATE;
+                    break;
+                case CTRL_RCV:
+                    if (byte_read == (A0 ^ UA))
+                        state = BCC1_RCV;
+                    else if (byte_read == FLAG)
+                        state = FLAG_RCV;
+                    else
+                    {
+                        state = START_STATE;
+                    }
+                    break;
+                case BCC1_RCV:
+                    if (byte_read == FLAG)
+                    {
+                        alarm(0);
+                        state = STOP_STATE;
+                    }
+                    else
+                        state = START_STATE;
+                    break;
+                default:
+                    state = START_STATE;
+                }
+            }
+        }
+        if (state != STOP_STATE){
+            perror("Failed to establish connection");
+            exit(ERROR);
+        }
+    }
+    else if (connectionParameters.role == LlRx)
+    {
+        while (state != STOP_STATE)
+        {
+            if (readByteSerialPort(&byte_read) > 0)
+            {
+                switch (state)
+                {
+                case START_STATE:
+                    if (byte_read == FLAG)
+                    {
+                        state = FLAG_RCV;
+                    }
+                    break;
+                case FLAG_RCV:
+                    if (byte_read == A0)
+                        state = ADDR_RCV;
+                    else if (byte_read != FLAG)
+                        state = START_STATE;
+                    break;
+                case ADDR_RCV:
+                    if (byte_read == SET)
+                        state = CTRL_RCV;
+                    else if (byte_read == FLAG)
+                        state = FLAG_RCV;
+                    else
+                        state = START_STATE;
+                    break;
+                case CTRL_RCV:
+                    if (byte_read == (A0 ^ SET))
+                        state = BCC1_RCV;
+                    else if (byte_read == FLAG)
+                        state = FLAG_RCV;
+                    else
+                    {
+                        state = START_STATE;
+                    }
+                    break;
+                case BCC1_RCV:
+                    if (byte_read == FLAG)
+                    {
+                        unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, UA, A0 ^ UA, FLAG};
+                        if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
+                        {
+                            perror("Failed to write UA packet");
+                            exit(ERROR);
+                        }
+                        state = STOP_STATE;
+                    }
+                    else
+                        state = START_STATE;
+                    break;
+                default:
+                    state = START_STATE;
+                }
+            }
+        }
+    }
+    return fd;
 }
 
 ////////////////////////////////////////////////
@@ -205,21 +348,31 @@ int llread(unsigned char *packet)
 
 int llclose(int showStatistics){
 
-    (void)signal(SIGALRM, alarmHandler);
+     // Signal handling
+    struct sigaction sa;
+    sa.sa_handler = alarmHandler;
+    sa.sa_flags = 0;
+    if (sigaction(SIGALRM, &sa, 0) == -1){
+        perror("ERROR: Setting signal handler\n");
+        exit(ERROR);
+    }
+
     int result;
     int state;
     Frame supervisionFrameSend;
     Frame supervisionFrameReceive;
+    alarmCount = 0;
+    alarmRinging = FALSE;
 
     // Allocate memory for the frame buffer
-    unsigned char* frameBufferSend = (unsigned char*)malloc(5 * sizeof(unsigned char));
+    unsigned char* frameBufferSend = (unsigned char*)malloc(FRAME_SIZE_S * sizeof(unsigned char));
     if (frameBufferSend == NULL) {
-        perror("Error allocating memory for frameBuffer\n");
+        perror("ERROR: Allocating memory for frameBufferSend\n");
         exit(ERROR);
     }
-    unsigned char* frameBufferReceive = (unsigned char*)malloc(5 * sizeof(unsigned char));
+    unsigned char* frameBufferReceive = (unsigned char*)malloc(FRAME_SIZE_S * sizeof(unsigned char));
     if (frameBufferReceive == NULL) {
-        perror("Error allocating memory for frameBuffer\n");
+        perror("ERROR: Allocating memory for frameBufferReceive\n");
         exit(ERROR);
     }
 
@@ -230,34 +383,29 @@ int llclose(int showStatistics){
         supervisionFrameSend.type = SUPERVISION;
         supervisionFrameSend.control = DISC;
         supervisionFrameSend.address = A0;
-        supervisionFrameSend.bytes = 5;
+        supervisionFrameSend.bytes = FRAME_SIZE_S;
 
         // Receive DISC
         supervisionFrameReceive.type = SUPERVISION;
         supervisionFrameReceive.control = DISC;
         supervisionFrameReceive.address = A1;
-        supervisionFrameReceive.bytes = 5;
+        supervisionFrameReceive.bytes = FRAME_SIZE_S;
 
         // Build the send DISC frame
-        result = buildFrame(frameBufferSend, &supervisionFrameSend);
-        if (result == ERROR) {
-            perror("Error during frame building\n");
-            exit(ERROR);
-        }
+        buildFrameSu(frameBufferSend, &supervisionFrameSend);
 
         unsigned char buffer_read = 0;
-        int byte = 0;
+        int byte;
         state = 0;
+    
 
         while (state != STOP_STATE && alarmCount < nRetransmissions) {
-
             // Sending disc frame
-            if (!alarmEnabled){
+            if (alarmRinging == FALSE){
                 // Setting alarm
-                alarmEnabled = TRUE;
+                alarmRinging = TRUE;
                 alarm(timeout);
 
-                printf("%dº alarm\n", alarmCount);
                 result = writeBytesSerialPort(frameBufferSend, supervisionFrameSend.bytes);
                 if (result == ERROR) {
                     perror("Error writing bytes to serial port\n");
@@ -270,57 +418,58 @@ int llclose(int showStatistics){
 
             // Reading disc frame
             byte = readByteSerialPort(&buffer_read);
-            if (byte == ERROR){
-                perror("Error reading byte from serial port\n");
-                exit(ERROR);
-            }
 
             if (byte > 0) {
                 // Process answer
                 printf("Byte received: 0x%02X\n", buffer_read);
                 processByte(buffer_read, &state, frameBufferReceive, &supervisionFrameReceive);
             }
-            else{
-                printf("No byte received\n");
-            }
+        }
+
+        if (state != STOP_STATE){
+            perror("ERROR:Timeout during receiving DISC\n"); 
+            exit(ERROR);
         }
 
         // Create UA frame
         supervisionFrameSend.control = UA;
-        buildFrame(frameBufferSend,&supervisionFrameSend);
+        supervisionFrameSend.address = A1;
+        buildFrameSu(frameBufferSend,&supervisionFrameSend);
 
-        // Send UA frame
+         // Send UA frame
         result = writeBytesSerialPort(frameBufferSend, supervisionFrameSend.bytes);
         if (result == ERROR) {
             perror("Error writing bytes to serial port\n");
             exit(ERROR);
         }
-
+        else{
+            printf("UA frame sent\n");
+        } 
     }
+
     else if (role == LlRx){
 
         // Frame parameters
         supervisionFrameReceive.type = SUPERVISION;
         supervisionFrameReceive.control = DISC;
         supervisionFrameReceive.address = A0;
-        supervisionFrameReceive.bytes = 5;
+        supervisionFrameReceive.bytes = FRAME_SIZE_S;
 
         unsigned char buffer_read = 0;
-        int byte = 0;
+        int byte;
         state = 0;
 
         while (state != STOP_STATE){
             // Reading disc frame
             byte = readByteSerialPort(&buffer_read);
-            if (byte == ERROR){
-                perror("Error reading byte from serial port\n");
-                exit(ERROR);
-            }
 
             if (byte > 0) {
                 // Process answer
                 printf("Byte received: 0x%02X\n", buffer_read);
                 processByte(buffer_read, &state, frameBufferReceive, &supervisionFrameReceive);
+                if (state == STOP_STATE) {
+                    break;
+                }
             }
             else{
                 printf("No byte received\n");
@@ -331,24 +480,25 @@ int llclose(int showStatistics){
         supervisionFrameSend.type = SUPERVISION;
         supervisionFrameSend.control = DISC;
         supervisionFrameSend.address = A1;
-        supervisionFrameSend.bytes = 5;
+        supervisionFrameSend.bytes = FRAME_SIZE_S;
+
+        buildFrameSu(frameBufferSend, &supervisionFrameSend);
 
         supervisionFrameReceive.type = SUPERVISION;
         supervisionFrameReceive.control = UA;
         supervisionFrameReceive.address = A1;
-        supervisionFrameReceive.bytes = 5;
+        supervisionFrameReceive.bytes = FRAME_SIZE_S;
 
         state = 0;
 
         while (state != STOP_STATE && alarmCount < nRetransmissions) {
 
             // Sending disc frame
-            if (!alarmEnabled){
+            if (!alarmRinging){
                 // Setting alarm
-                alarmEnabled = TRUE;
+                alarmRinging = TRUE;
                 alarm(timeout);
 
-                printf("%dº alarm\n", alarmCount);
                 result = writeBytesSerialPort(frameBufferSend, supervisionFrameSend.bytes);
                 if (result == ERROR) {
                     perror("Error writing bytes to serial port\n");
@@ -361,24 +511,20 @@ int llclose(int showStatistics){
 
             // Reading UA frame
             byte = readByteSerialPort(&buffer_read);
-            if (byte == ERROR){
-                perror("Error reading byte from serial port\n");
-                exit(ERROR);
-            }
 
             if (byte > 0) {
                 // Process answer
                 printf("Byte received: 0x%02X\n", buffer_read);
                 processByte(buffer_read, &state, frameBufferReceive, &supervisionFrameReceive);
             }
-            else{
-                printf("No byte received\n");
-            }
+
         }
-        if (alarmCount > nRetransmissions){
-            printf("ERROR:Timeout\n");
+
+        if (state != STOP_STATE){
+            perror("ERROR: Timeout during receiving UA\n"); 
+            exit(ERROR);
         }
-        //TODO: PRINT FRAMES
+
     }
 
     free(frameBufferSend);
