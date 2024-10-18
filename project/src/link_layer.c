@@ -345,7 +345,7 @@ int llread(unsigned char *packet)
     return 0;
 }
 
-
+//TODO: STATISTICS,change makefile
 int llclose(int showStatistics){
 
      // Signal handling
@@ -378,6 +378,7 @@ int llclose(int showStatistics){
 
 
     if (role == LlTx) {
+
         // Frame Parameters
         // Send DISC
         supervisionFrameSend.type = SUPERVISION;
@@ -481,8 +482,8 @@ int llclose(int showStatistics){
         supervisionFrameSend.control = DISC;
         supervisionFrameSend.address = A1;
         supervisionFrameSend.bytes = FRAME_SIZE_S;
-
         buildFrameSu(frameBufferSend, &supervisionFrameSend);
+
 
         supervisionFrameReceive.type = SUPERVISION;
         supervisionFrameReceive.control = UA;
