@@ -1,3 +1,4 @@
+#define _POSIX_SOURCE 1 // POSIX compliant source
 // Link layer protocol implementation
 #include "link_layer.h"
 #include "serial_port.h"
@@ -7,7 +8,6 @@
 #include <signal.h>
 
 // MISC
-#define _POSIX_SOURCE 1 // POSIX compliant source
 
 LinkLayerRole role;
 int timeout;
@@ -32,43 +32,45 @@ int alarmCount = 0;
 #define A0 0x03 // Sender
 #define A1 0x01 // Receiver
 
+#define C_IF(Nr) (Nr << 6)
+
 // Control
 #define SET 0x03
 #define UA 0x07
-#define RR0 0xAA
-#define RR1 0xAB
-#define REJ0 0x54
-#define REJ1 0x55
+#define RR(Nr) (0xAA | Nr)
+#define REJ(Nr) (0x54 | Nr)
 #define DISC 0x0B
 
 // Byte stuffing
 #define ESC 0x7D
 
 
-typedef enum {
+typedef enum FrameType {
     SUPERVISION,
     INFO
 } FrameType;
 
-typedef struct {
+typedef struct Frame {
     FrameType type;
     unsigned char control;
     unsigned char address;
     int bytes;
 } Frame;
 
-typedef enum
+typedef enum State
 {
-    START_STATE,
-    FLAG_RCV,
-    ADDR_RCV,
-    CTRL_RCV,
-    BCC1_RCV,
-    DATA_RCV,
-    BCC2_RCV,
+    WAITING_FLAG,
+    WAITING_ADDR,
+    WAITING_CTRL,
+    WAITING_BCC1,
+    WAITING_FLAG2,
+    WAITING_DATA,
+    WAITING_BCC2,
     ESC_OCT_RCV,
     STOP_STATE
 } State;
+
+unsigned char Ns = 1;
 
 void alarmHandler(int signal)
 {
@@ -80,57 +82,57 @@ void alarmHandler(int signal)
 
 void supervisionStateMachine(unsigned char byte, int* state, unsigned char* frame, const Frame* frameParameters){
     switch (*state){
-        case START_STATE:
+        case WAITING_FLAG:
             if (byte == FLAG){
                 frame[0] = byte;
-                (*state) = FLAG_RCV;
+                (*state) = WAITING_ADDR;
             }
             break;
-        case FLAG_RCV:
+        case WAITING_ADDR:
             if (byte == frameParameters->address){
                 frame[1] = byte;
-                (*state) = ADDR_RCV;
+                (*state) = WAITING_CTRL;
             }
             else if (byte != FLAG){
-                (*state) = START_STATE;
+                (*state) = WAITING_FLAG;
             }
             break;
-        case ADDR_RCV:
+        case WAITING_CTRL:
             if (byte == frameParameters->control){
                 frame[2] = byte;
-                (*state) = CTRL_RCV;
+                (*state) = WAITING_BCC1;
             }
             else if (byte == FLAG){
-                (*state) = FLAG_RCV;
+                (*state) = WAITING_ADDR;
             }
             else{
-                (*state) = START_STATE;
+                (*state) = WAITING_FLAG;
             }
             break;
-        case CTRL_RCV:
+        case WAITING_BCC1:
             if (byte == (frame[1]^frame[2])){
                 frame[3] = byte;
-                (*state) = BCC1_RCV;
+                (*state) = WAITING_FLAG2;
             }
             else if (byte == FLAG){
-                (*state) = FLAG_RCV;
+                (*state) = WAITING_ADDR;
             }
             else{
-                (*state) = START_STATE;
+                (*state) = WAITING_FLAG;
             }
             break;
-        case BCC1_RCV:
+        case WAITING_FLAG2:
             if (byte == FLAG){
                 frame[4] = byte;
                 (*state) = STOP_STATE;
                 alarm(0);
             }
             else{
-                (*state) = START_STATE;
+                (*state) = WAITING_FLAG;
             }
             break;
         default:
-            (*state) = START_STATE;
+            (*state) = WAITING_FLAG;
     }
 }
 
@@ -180,7 +182,7 @@ int llopen(LinkLayer connectionParameters)
     nRetransmissions = connectionParameters.nRetransmissions;
 
 
-    State state = START_STATE;
+    State state = WAITING_FLAG;
     unsigned char byte_read = 0;
 
     struct sigaction sa;
@@ -215,47 +217,47 @@ int llopen(LinkLayer connectionParameters)
             {
                 switch (state)
                 {
-                case START_STATE:
+                case WAITING_FLAG:
                     if (byte_read == FLAG)
                     {
-                        state = FLAG_RCV;
+                        state = WAITING_ADDR;
                     }
                     break;
-                case FLAG_RCV:
+                case WAITING_ADDR:
                     if (byte_read == A0)
-                        state = ADDR_RCV;
+                        state = WAITING_CTRL;
                     else if (byte_read != FLAG)
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     break;
-                case ADDR_RCV:
+                case WAITING_CTRL:
                     if (byte_read == UA)
-                        state = CTRL_RCV;
+                        state = WAITING_BCC1;
                     else if (byte_read == FLAG)
-                        state = FLAG_RCV;
+                        state = WAITING_ADDR;
                     else
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     break;
-                case CTRL_RCV:
+                case WAITING_BCC1:
                     if (byte_read == (A0 ^ UA))
-                        state = BCC1_RCV;
+                        state = WAITING_FLAG2;
                     else if (byte_read == FLAG)
-                        state = FLAG_RCV;
+                        state = WAITING_ADDR;
                     else
                     {
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     }
                     break;
-                case BCC1_RCV:
+                case WAITING_FLAG2:
                     if (byte_read == FLAG)
                     {
                         alarm(0);
                         state = STOP_STATE;
                     }
                     else
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     break;
                 default:
-                    state = START_STATE;
+                    state = WAITING_FLAG;
                 }
             }
         }
@@ -272,37 +274,37 @@ int llopen(LinkLayer connectionParameters)
             {
                 switch (state)
                 {
-                case START_STATE:
+                case WAITING_FLAG:
                     if (byte_read == FLAG)
                     {
-                        state = FLAG_RCV;
+                        state = WAITING_ADDR;
                     }
                     break;
-                case FLAG_RCV:
+                case WAITING_ADDR:
                     if (byte_read == A0)
-                        state = ADDR_RCV;
+                        state = WAITING_CTRL;
                     else if (byte_read != FLAG)
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     break;
-                case ADDR_RCV:
+                case WAITING_CTRL:
                     if (byte_read == SET)
-                        state = CTRL_RCV;
+                        state = WAITING_BCC1;
                     else if (byte_read == FLAG)
-                        state = FLAG_RCV;
+                        state = WAITING_ADDR;
                     else
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     break;
-                case CTRL_RCV:
+                case WAITING_BCC1:
                     if (byte_read == (A0 ^ SET))
-                        state = BCC1_RCV;
+                        state = WAITING_FLAG2;
                     else if (byte_read == FLAG)
-                        state = FLAG_RCV;
+                        state = WAITING_ADDR;
                     else
                     {
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     }
                     break;
-                case BCC1_RCV:
+                case WAITING_FLAG2:
                     if (byte_read == FLAG)
                     {
                         unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, UA, A0 ^ UA, FLAG};
@@ -314,10 +316,10 @@ int llopen(LinkLayer connectionParameters)
                         state = STOP_STATE;
                     }
                     else
-                        state = START_STATE;
+                        state = WAITING_FLAG;
                     break;
                 default:
-                    state = START_STATE;
+                    state = WAITING_FLAG;
                 }
             }
         }
@@ -340,9 +342,133 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    // TODO
 
-    return 0;
+    // State machine
+    State state = WAITING_FLAG;
+    unsigned char *byte_read = 0;
+    unsigned char received_IF = 0;
+    int byte_nr = 0;
+    while (state != STOP_STATE) {
+        if (readByteSerialPort(byte_read) > 0) {
+            switch (state) {
+                case WAITING_FLAG:
+                    if (*byte_read == FLAG) {
+                        state = WAITING_ADDR;
+                    }
+                    break;
+                case WAITING_ADDR:
+                    if (*byte_read == A0) {
+                        state = WAITING_CTRL;
+                    } else if (*byte_read == FLAG) {
+                        state = WAITING_ADDR;
+                    } else {
+                        state = WAITING_FLAG;
+                    }
+                    break;
+                case WAITING_CTRL:
+                    // DUVIDA: Se eu receber o frame nao esperado, é um duplicado? E transmitter guarda o frame anterior ao enviado,
+                    // e tem capacidade para enviá-lo caso receba um rej?. i.e o q fazer se no receiver eu receber um Information frame number 
+                    // diferente do esperado?? 
+                    if (*byte_read == C_IF(0) || *byte_read == C_IF(1)) {
+                        received_IF = *byte_read;
+                        state = WAITING_BCC1;
+                    } else if (*byte_read == FLAG) {
+                        state = WAITING_ADDR;
+                    } else {
+                        state = WAITING_FLAG;
+                    }
+                    break;
+                case WAITING_BCC1:
+                    if (*byte_read == (A0 ^ C_IF(0)) || *byte_read == (A0 ^ C_IF(1))) {
+                        state = WAITING_DATA;
+                    } else if (*byte_read == FLAG) {
+                        state = WAITING_ADDR;
+                    } else {
+                        state = WAITING_FLAG;
+                    }
+                    break;
+                case WAITING_DATA:
+                    if (*byte_read == ESC) {
+                        state = ESC_OCT_RCV;
+                    }
+                    else if (*byte_read == FLAG) {
+
+                        unsigned char bcc2_rcv = packet[byte_nr - 1];
+                        unsigned char bcc2_actual = 0;
+
+                        packet[byte_nr - 1] = '\0';
+
+                        for (size_t i = 0; i < byte_nr; i++)
+                        {
+                            bcc2_actual = bcc2_actual ^ packet[i];
+                        }
+
+                        if (bcc2_actual == bcc2_rcv)
+                        {
+                            // Frame received, ready to receive next frame
+                            if (C_IF(Ns) == received_IF) {
+                                state = STOP_STATE;
+                                Ns ^= 1;
+
+                                unsigned char* frame = NULL;
+                                Frame supervisionFrameReceive = {SUPERVISION, RR(Ns), A0, FRAME_SIZE_S};
+                                buildFrameSu(frame, &supervisionFrameReceive);
+                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
+                                {
+                                    perror("Failed to write RR packet");
+                                    exit(ERROR);
+                                }
+                                return byte_nr;
+                            }
+
+                            // Duplicate frame, discarding
+                            else
+                            {
+                                state = STOP_STATE;
+
+                                unsigned char* frame = NULL;
+                                Frame supervisionFrameReceive = {SUPERVISION, RR(Ns), A0, FRAME_SIZE_S};
+                                buildFrameSu(frame, &supervisionFrameReceive);
+                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
+                                {
+                                    perror("Failed to write RR packet");
+                                    exit(ERROR);
+                                }
+                                // ignore packet received till now
+                                return 0;
+                            }
+                        }
+                        // BCC2 error, rejecting frame
+                        else
+                        {
+                            unsigned char* frame = NULL;
+                            Frame supervisionFrameReceive = {SUPERVISION, received_IF >> 6, A0, FRAME_SIZE_S};
+                            buildFrameSu(frame, &supervisionFrameReceive);
+                            if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
+                            {
+                                perror("Failed to write REJ packet\n");
+                                exit(ERROR);
+                            }
+                            return -1;
+                        }
+                    }
+
+                    // Reading data
+                    else {
+                        packet[byte_nr] = *byte_read;
+                        byte_nr++;
+                    }
+                    break;
+                case ESC_OCT_RCV:
+                    packet[byte_nr] = *byte_read^0x20;
+                    byte_nr++;
+                    state = WAITING_DATA;
+                    break;
+                default:   
+            }
+        }
+    }
+    return -1;
 }
 
 //TODO: STATISTICS,change makefile
