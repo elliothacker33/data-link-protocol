@@ -451,21 +451,21 @@ int llread(unsigned char *packet)
 
     // State machine
     State state = WAITING_FLAG;
-    unsigned char byte_read = 0;
+    unsigned char* byte_read = 0;
     unsigned char received_IF = 0;
     int byte_nr = 0;
     while (state != STOP_STATE) {
-        if (readByteSerialPort(&byte_read) > 0) {
+        if (readByteSerialPort(byte_read) > 0) {
             switch (state) {
                 case WAITING_FLAG:
-                    if (byte_read == FLAG) {
+                    if (*byte_read == FLAG) {
                         state = WAITING_ADDR;
                     }
                     break;
                 case WAITING_ADDR:
-                    if (byte_read == A0) {
+                    if (*byte_read == A0) {
                         state = WAITING_CTRL;
-                    } else if (byte_read == FLAG) {
+                    } else if (*byte_read == FLAG) {
                         state = WAITING_ADDR;
                     } else {
                         state = WAITING_FLAG;
@@ -475,29 +475,29 @@ int llread(unsigned char *packet)
                     // DUVIDA: Se eu receber o frame nao esperado, é um duplicado? E transmitter guarda o frame anterior ao enviado,
                     // e tem capacidade para enviá-lo caso receba um rej?. i.e o q fazer se no receiver eu receber um Information frame number 
                     // diferente do esperado??
-                    if (byte_read == C_IF(0) || byte_read == C_IF(1)) {
-                        received_IF = byte_read;
+                    if (*byte_read == C_IF(0) || *byte_read == C_IF(1)) {
+                        received_IF = *byte_read;
                         state = WAITING_BCC1;
-                    } else if (byte_read == FLAG) {
+                    } else if (*byte_read == FLAG) {
                         state = WAITING_ADDR;
                     } else {
                         state = WAITING_FLAG;
                     }
                     break;
                 case WAITING_BCC1:
-                    if (byte_read == (A0 ^ C_IF(0)) || byte_read == (A0 ^ C_IF(1))) {
+                    if (*byte_read == (A0 ^ C_IF(0)) || *byte_read == (A0 ^ C_IF(1))) {
                         state = WAITING_DATA;
-                    } else if (byte_read == FLAG) {
+                    } else if (*byte_read == FLAG) {
                         state = WAITING_ADDR;
                     } else {
                         state = WAITING_FLAG;
                     }
                     break;
                 case WAITING_DATA:
-                    if (byte_read == ESC) {
+                    if (*byte_read == ESC) {
                         state = ESC_OCT_RCV;
                     }
-                    else if (byte_read == FLAG) {
+                    else if (*byte_read == FLAG) {
 
                         unsigned char bcc2_rcv = packet[byte_nr - 1];
                         unsigned char bcc2_actual = 0;
@@ -574,12 +574,12 @@ int llread(unsigned char *packet)
 
                     // Reading data
                     else {
-                        packet[byte_nr] = byte_read;
+                        packet[byte_nr] = *byte_read;
                         byte_nr++;
                     }
                     break;
                 case ESC_OCT_RCV:
-                    packet[byte_nr] = byte_read^0x20;
+                    packet[byte_nr] = *byte_read^0x20;
                     byte_nr++;
                     state = WAITING_DATA;
                     break;
