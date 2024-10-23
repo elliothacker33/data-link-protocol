@@ -102,7 +102,14 @@ unsigned char* buildDataPacket(FILE* fptr, int payload, size_t s, size_t* sizeDa
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
-{
+{   
+    // Ask for statistics
+    /*
+    int showStats;
+    printf("0 - hide statistics 1 - show statistics: ");
+    scanf("%d", &showStats);
+    */
+
     // Create Link Layer settings
     LinkLayer openConnection;
     strcpy(openConnection.serialPort, serialPort); // serial port
@@ -110,6 +117,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     openConnection.nRetransmissions = nTries; // number of retries
     openConnection.timeout = timeout; // timeout 
     int fd;
+
 
     if ((*role) == 't'){
 

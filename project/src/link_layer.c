@@ -284,15 +284,25 @@ int llwrite(const unsigned char *buf, int bufSize) {
     }
     buildFrameInformation(frameBufferSend, buf, A0, C_IF(Ns), bufSize);
 
+    int extraBytes = 0;
+
     // Byte stuffing (+1 for bcc2 stuffing)
     for (size_t i = 0; i < bufSize + 1; i++) {
+        if (frameBufferSend[4 + i] == FLAG || frameBufferSend[4 + i] == ESC){
+            extraBytes++;
+        }
+    }
+    
+    frameBytes += extraBytes;
+    frameBufferSend = realloc(frameBufferSend, frameBytes);
+    if (frameBufferSend == NULL) {
+        perror("ERROR: Reallocating memory for frameBufferSend\n");
+        return ERROR;
+    }
+
+    for (size_t i = 0; i < bufSize + extraBytes + 1; i++) {
         if (frameBufferSend[4 + i] == FLAG || frameBufferSend[4 + i] == ESC) {
-            frameBytes++;
-            frameBufferSend = realloc(frameBufferSend, frameBytes);
-            if (frameBufferSend == NULL) {
-                perror("ERROR: Reallocating memory for frameBufferSend\n");
-                return ERROR;
-            }
+           
             memmove(&frameBufferSend[4 + i + 2], &frameBufferSend[4 + i + 1], frameBytes - (4 + i + 2));
 
             if (frameBufferSend[4 + i] == FLAG) {
@@ -869,6 +879,15 @@ int llclose(int showStatistics) {
 
     // Close the serial port
     int clstat = closeSerialPort();
+
+    if (clstat < 0) {
+        perror("Error closing serial port\n");
+        return clstat;
+    }
+    
+    if (showStatistics == TRUE){
+        // Do statistics
+    }
     return clstat;
 }
 
