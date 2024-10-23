@@ -78,7 +78,7 @@ int main(int argc, char *argv[]) {
     newtio.c_oflag = 0;
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 0;
-    newtio.c_cc[VMIN] = 0;
+    newtio.c_cc[VMIN] = 1;
     tcflush(fd, TCIOFLUSH);
 
     if (tcsetattr(fd, TCSANOW, &newtio) == -1) {
@@ -114,7 +114,6 @@ int main(int argc, char *argv[]) {
     unsigned char ua_packet[PACKET_SIZE] = {0}; 
     unsigned char buf_read = 0;
     int state = 0;
-    int bytes;
     // Start communication process
     while (state != STOP_STATE && alarmCount < 3) {
         if (!alarmEnabled) {
