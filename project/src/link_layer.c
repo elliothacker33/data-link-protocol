@@ -139,7 +139,7 @@ int llopen(LinkLayer connectionParameters)
                 unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, SET, A0 ^ SET, FLAG};
                 if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
                 {
-                    perror("Failed to write SET packet");
+                    perror("Failed to write SET frame\n");
                     exit(ERROR);
                 }
             }
@@ -193,7 +193,7 @@ int llopen(LinkLayer connectionParameters)
             }
         }
         if (state != STOP_STATE){
-            perror("Failed to establish connection");
+            perror("Failed to establish connection\n");
             exit(ERROR);
         }
     }
@@ -241,7 +241,7 @@ int llopen(LinkLayer connectionParameters)
                         unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, UA, A0 ^ UA, FLAG};
                         if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
                         {
-                            perror("Failed to write UA packet");
+                            perror("Failed to write UA frame\n");
                             exit(ERROR);
                         }
                         state = STOP_STATE;
@@ -272,7 +272,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     }
 
     if (buf == NULL) {
-        perror("ERROR: buffer is null");
+        perror("ERROR: buffer is null\n");
         return ERROR;
     }
 
@@ -339,7 +339,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
             
             byte = writeBytesSerialPort(frameBufferSend, frameBytes);
             if (byte == ERROR) {
-                perror("Error writing bytes to serial port\n");
+                perror("ERROR: writing bytes to serial port\n");
                 free(frameBufferSend);
                 free(frameBufferReceive);
                 return ERROR;
@@ -411,21 +411,12 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 printf("Frames sent with errors\n");
             }
             else if (frameBufferReceive[2] == RR(0) && Ns == 0){
-                Ns^=1;
                 printf("RR(0) received\n");
                 printf("Duplicate frames\n");
-                free(frameBufferSend);
-                free(frameBufferReceive);
-                return 0;
-
             }
             else if (frameBufferReceive[2] == RR(1) && Ns == 1){
-                Ns^=1;
                 printf("RR(1) received\n");
                 printf("Duplicate frames\n");
-                free(frameBufferSend);
-                free(frameBufferReceive);
-                return 0;
             }
             else if (frameBufferReceive[2] == RR(1) && Ns == 0) {
                 Ns^=1;
@@ -485,7 +476,7 @@ int llread(unsigned char *packet)
                     // DUVIDA: Se eu receber o frame nao esperado, é um duplicado? E transmitter guarda o frame anterior ao enviado,
                     // e tem capacidade para enviá-lo caso receba um rej?. i.e o q fazer se no receiver eu receber um Information frame number 
                     // diferente do esperado??
-                    if (*byte_read == C_IF(0) || *byte_read == C_IF(1)) {
+                    if (byte_read == C_IF(0) || *byte_read == C_IF(1)) {
                         received_IF = *byte_read;
                         state = WAITING_BCC1;
                     } else if (*byte_read == FLAG) {
@@ -530,7 +521,7 @@ int llread(unsigned char *packet)
                                 buildFrameSupervision(frame, A0, RR(Ns));
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
-                                    perror("Failed to write RR packet");
+                                    perror("Failed to write RR frame");
                                     exit(ERROR);
                                 }
                                 return byte_nr;
@@ -561,7 +552,7 @@ int llread(unsigned char *packet)
                                 buildFrameSupervision(frame, A0,REJ(received_IF >> 7));
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
-                                    perror("Failed to write REJ packet\n");
+                                    perror("Failed to write REJ frame\n");
                                     exit(ERROR);
                                 }
                                 return -1;
@@ -573,7 +564,7 @@ int llread(unsigned char *packet)
                                 buildFrameSupervision(frame, RR(Ns),A0);
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
-                                    perror("Failed to write RR packet");
+                                    perror("Failed to write RR frame\n");
                                     exit(ERROR);
                                 }
                                 // ignore packet received till now
@@ -626,7 +617,7 @@ int llclose(int showStatistics) {
     if (frameBufferReceive == NULL) {
         perror("ERROR: Allocating memory for frameBufferReceive\n");
         return ERROR;
-    }
+    }   
 
     if (role == LlTx) {
         printf("LLCLOSE: Lltx\n");
@@ -863,7 +854,7 @@ int llclose(int showStatistics) {
         }
 
         if (state != STOP_STATE) {
-            perror("ERROR: Timeout during receiving UA\n");
+            perror("ERROR: Timeout during receiving UA frame\n");
             free(frameBufferSend);
             free(frameBufferReceive);
             return ERROR;

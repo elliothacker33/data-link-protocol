@@ -24,16 +24,15 @@
 #define FILE_NAME 1
 
 size_t getFileSize(FILE* fptr){
-    int result;
-    result = fseek(fptr, 0, SEEK_END);
-    if (result == ERROR) {
-        perror("Error: Unable to seek to end of file");
+
+    if ((fseek(fptr, 0, SEEK_END))== ERROR) {
+        perror("ERROR: Unable to seek to end of file\n");
         exit(ERROR);
     }
 
-    int fileSize = ftell(fptr);
+    long fileSize = ftell(fptr);
     if (fileSize == ERROR){
-        perror("Error: Unable to obtain file size");
+        perror("ERROR: Unable to obtain file size\n");
         exit(ERROR);
     }
     rewind(fptr);
@@ -42,13 +41,13 @@ size_t getFileSize(FILE* fptr){
 
 unsigned char* buildControlPacket(int fileSize, const char* filename, size_t* sizePacket, int control){
 
-    size_t l1 = (fileSize > 0) ? (int)(log(fileSize) / log(256)) + 1 : 1;
+    size_t l1 = (fileSize > 0) ? (int)(log2(fileSize) / log2(256)) + 1 : 1;
     size_t l2 = strlen(filename) + 1;
     (*sizePacket) = 5 + l1 + l2;
 
     unsigned char* controlPacket = (unsigned char*)malloc((*sizePacket) * sizeof(unsigned char));
     if (controlPacket == NULL){
-        perror("Error: Unable to allocate memory");
+        perror("ERROR: Unable to allocate memory\n");
         exit(ERROR);
     }
 
@@ -71,26 +70,26 @@ unsigned char* buildControlPacket(int fileSize, const char* filename, size_t* si
     return controlPacket;
 }
 
-unsigned char* buildDataPacket(FILE* fptr, int payload, size_t s, size_t* sizeDataPacket){
+unsigned char* buildDataPacket(FILE* fptr, size_t payload, size_t s, size_t* sizeDataPacket){
 
     (*sizeDataPacket) = payload + 4;
     unsigned char* dataPacket = (unsigned char*)malloc((*sizeDataPacket) * sizeof(unsigned char));
 
     if (dataPacket == NULL){
-        perror("Error: Unable to allocate memory");
+        perror("ERROR: Unable to allocate memory\n");
         exit(ERROR);
     }
 
     dataPacket[0] = DATA;
     dataPacket[1] = (unsigned char) s;
-    dataPacket[2] = (unsigned char) (payload / 256);
-    dataPacket[3] = (unsigned char) (payload % 256);
+    dataPacket[2] = (unsigned char) (payload >> 8) & 0xFF;
+    dataPacket[3] = (unsigned char) (payload & 0xFF);
 
     for (int i = 0; i < payload; i++){
         int byte = fgetc(fptr);
 
         if (byte == EOF){
-            perror("Error: Unexpected end of file");
+            perror("ERROR: Unexpected end of file\n");
             exit(ERROR);
         }
     
@@ -125,14 +124,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         openConnection.role = LlTx;
         fd = llopen(openConnection);
         if (fd == ERROR){
-            perror("ERROR: Error opening connection");
+            perror("ERROR: Error opening connection\n");
             exit(ERROR);
         }
 
         // Open file 
         FILE* fPtr = fopen(filename, "rb");
         if (fPtr == NULL){
-            perror("ERROR: Error opening file");
+            perror("ERROR: Error opening file\n");
             exit(ERROR);
         }
 
@@ -143,7 +142,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         size_t sizeStartPacket;
         unsigned char* startPacket = buildControlPacket(fileSize, filename, &sizeStartPacket,START);
         if (llwrite(startPacket, sizeStartPacket) == ERROR){
-            perror("ERROR: Error sending start packet");
+            perror("ERROR: Error sending start packet\n");
             exit(ERROR);
         }
         free(startPacket);
@@ -165,9 +164,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             // Data packet
             unsigned char* dataPacket = buildDataPacket(fPtr, usePayload, s, &sizeDataPacket);
             if (llwrite(dataPacket, sizeDataPacket) == ERROR){
-                perror("ERROR: Error sending data packet");
+                perror("ERROR: Error sending data packet\n");
                 exit(ERROR);
             }
+
             free(dataPacket);
 
             s++;
@@ -181,7 +181,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         size_t sizeEndPacket;
         unsigned char* endPacket = buildControlPacket(fileSize, filename, &sizeEndPacket,END);
         if (llwrite(endPacket, sizeEndPacket) == ERROR){
-            perror("ERROR: Error sending start packet");
+            perror("ERROR: Error sending start packet\n");
             exit(ERROR);
         }
         free(endPacket);
@@ -189,7 +189,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         // Close file
         int result = fclose(fPtr);
         if (result == ERROR){
-            perror("ERROR: Error closing file");
+            perror("ERROR: Error closing file\n");
             exit(ERROR);
         }
 
@@ -198,7 +198,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         int closeConnection;
         closeConnection = llclose(0);
         if (closeConnection == ERROR){
-            perror("ERROR: Error opening connection");
+            perror("ERROR: Error opening connection\n");
             exit(ERROR);
         }
 
@@ -207,10 +207,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         openConnection.role = LlRx;
         fd = llopen(openConnection);
 
-        if (fd == -1){
+        if (fd == -1) {
             perror("Error: Error opening connection");
             exit(-1);
         }
+
+       
 
         fd = llclose(0);
         if (fd == -1){
