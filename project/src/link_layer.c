@@ -46,18 +46,26 @@ int alarmCount = 0;
 #define ESC 0x7D
 
 
-typedef enum State
+typedef enum SupervisionState
 {
-    WAITING_FLAG,
-    WAITING_ADDR,
-    WAITING_CTRL,
-    WAITING_BCC1,
-    WAITING_FLAG2,
-    WAITING_DATA,
-    WAITING_BCC2,
-    ESC_OCT_RCV,
-    STOP_STATE
-} State;
+    S_WAITING_FLAG,
+    S_WAITING_ADDR,
+    S_WAITING_CTRL,
+    S_WAITING_BCC1,
+    S_WAITING_FLAG2,
+    S_STOP_STATE
+} SupervisionState;
+typedef enum InformationState
+{
+    I_WAITING_FLAG,
+    I_WAITING_ADDR,
+    I_WAITING_CTRL,
+    I_WAITING_BCC1,
+    I_WAITING_DATA,
+    I_WAITING_BCC2,
+    I_ESC_OCT_RCV,
+    I_STOP_STATE
+} InformationState;
 
 unsigned char Ns;
 
@@ -82,7 +90,7 @@ void buildFrameSupervision(unsigned char* frame, const unsigned char address, co
     frame[4] = FLAG;
 }
 
-void buildFrameInformation(unsigned char* frame, const unsigned char* data, const unsigned char address, const unsigned char control, const size_t bytes){
+void buildFrameInformation(unsigned char* frame, const unsigned char* data, const unsigned char address, const unsigned char control, const int bytes){
     frame[0] = FLAG;
     frame[1] = address;
     frame[2] = control;
@@ -113,7 +121,7 @@ int llopen(LinkLayer connectionParameters)
     nRetransmissions = connectionParameters.nRetransmissions;
 
 
-    State state = WAITING_FLAG;
+    SupervisionState state = S_WAITING_FLAG;
     unsigned char byte_read = 0;
 
     struct sigaction sa;
@@ -128,7 +136,7 @@ int llopen(LinkLayer connectionParameters)
     if (role == LlTx)
     {
 
-        while (state != STOP_STATE && alarmCount < nRetransmissions)
+        while (state != S_STOP_STATE && alarmCount < nRetransmissions)
         {
             if (alarmRinging == FALSE)
             {
@@ -148,94 +156,94 @@ int llopen(LinkLayer connectionParameters)
             {
                 switch (state)
                 {
-                case WAITING_FLAG:
+                case S_WAITING_FLAG:
                     if (byte_read == FLAG)
                     {
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     }
                     break;
-                case WAITING_ADDR:
+                case S_WAITING_ADDR:
                     if (byte_read == A0)
-                        state = WAITING_CTRL;
+                        state = S_WAITING_CTRL;
                     else if (byte_read != FLAG)
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     break;
-                case WAITING_CTRL:
+                case S_WAITING_CTRL:
                     if (byte_read == UA)
-                        state = WAITING_BCC1;
+                        state = S_WAITING_BCC1;
                     else if (byte_read == FLAG)
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     else
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     break;
-                case WAITING_BCC1:
+                case S_WAITING_BCC1:
                     if (byte_read == (A0 ^ UA))
-                        state = WAITING_FLAG2;
+                        state = S_WAITING_FLAG2;
                     else if (byte_read == FLAG)
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     else
                     {
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     }
                     break;
-                case WAITING_FLAG2:
+                case S_WAITING_FLAG2:
                     if (byte_read == FLAG){
                         alarm(0);
-                        state = STOP_STATE;
+                        state = S_STOP_STATE;
                     }
                     else {
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     }
                     break;
                     default:
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                 }
             }
         }
-        if (state != STOP_STATE){
+        if (state != S_STOP_STATE){
             perror("Failed to establish connection\n");
             exit(ERROR);
         }
     }
     else if (connectionParameters.role == LlRx)
     {
-        while (state != STOP_STATE)
+        while (state != S_STOP_STATE)
         {
             if (readByteSerialPort(&byte_read) > 0)
             {
                 switch (state)
                 {
-                case WAITING_FLAG:
+                case S_WAITING_FLAG:
                     if (byte_read == FLAG)
                     {
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     }
                     break;
-                case WAITING_ADDR:
+                case S_WAITING_ADDR:
                     if (byte_read == A0)
-                        state = WAITING_CTRL;
+                        state = S_WAITING_CTRL;
                     else if (byte_read != FLAG)
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     break;
-                case WAITING_CTRL:
+                case S_WAITING_CTRL:
                     if (byte_read == SET)
-                        state = WAITING_BCC1;
+                        state = S_WAITING_BCC1;
                     else if (byte_read == FLAG)
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     else
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     break;
-                case WAITING_BCC1:
+                case S_WAITING_BCC1:
                     if (byte_read == (A0 ^ SET))
-                        state = WAITING_FLAG2;
+                        state = S_WAITING_FLAG2;
                     else if (byte_read == FLAG)
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     else
                     {
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     }
                     break;
-                case WAITING_FLAG2:
+                case S_WAITING_FLAG2:
                     if (byte_read == FLAG)
                     {
                         unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, UA, A0 ^ UA, FLAG};
@@ -244,13 +252,13 @@ int llopen(LinkLayer connectionParameters)
                             perror("Failed to write UA frame\n");
                             exit(ERROR);
                         }
-                        state = STOP_STATE;
+                        state = S_STOP_STATE;
                     }
                     else
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     break;
                     default:
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                 }
             }
         }
@@ -277,6 +285,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     }
 
     int frameBytes = bufSize + 6;
+
     unsigned char* frameBufferSend = (unsigned char*)malloc(frameBytes * sizeof(unsigned char));
     if (frameBufferSend == NULL) {
         perror("ERROR: Allocating memory for frameBufferSend\n");
@@ -287,35 +296,41 @@ int llwrite(const unsigned char *buf, int bufSize) {
     int extraBytes = 0;
 
     // Byte stuffing (+1 for bcc2 stuffing)
-    for (size_t i = 0; i < bufSize + 1; i++) {
+    for (int i = 0; i < bufSize + 1; i++) {
         if (frameBufferSend[4 + i] == FLAG || frameBufferSend[4 + i] == ESC){
             extraBytes++;
         }
     }
+
     
-    frameBytes += extraBytes;
-    frameBufferSend = realloc(frameBufferSend, frameBytes);
-    if (frameBufferSend == NULL) {
-        perror("ERROR: Reallocating memory for frameBufferSend\n");
-        return ERROR;
-    }
-
-    for (size_t i = 0; i < bufSize + extraBytes + 1; i++) {
-        if (frameBufferSend[4 + i] == FLAG || frameBufferSend[4 + i] == ESC) {
-           
-            memmove(&frameBufferSend[4 + i + 2], &frameBufferSend[4 + i + 1], frameBytes - (4 + i + 2));
-
-            if (frameBufferSend[4 + i] == FLAG) {
-                frameBufferSend[4 + i] = ESC;
-                frameBufferSend[4 + i + 1] = FLAG^0x20;
-            } else if (frameBufferSend[4 + i] == ESC) {
-                frameBufferSend[4 + i] = ESC;
-                frameBufferSend[4 + i + 1] = ESC^0x20;
-            }
-            i++;
+    if (extraBytes > 0) {
+       
+        frameBytes += extraBytes;
+        frameBufferSend = realloc(frameBufferSend, frameBytes);
+        if (frameBufferSend == NULL) {
+            perror("ERROR: Reallocating memory for frameBufferSend\n");
+            return ERROR;
         }
-    }
+        
+       
+        for (int i = 0; i < bufSize + extraBytes + 1; i++) {
+            if (frameBufferSend[4 + i] == FLAG || frameBufferSend[4 + i] == ESC) {
+            
+                memmove(&frameBufferSend[4 + i + 2], &frameBufferSend[4 + i + 1], frameBytes - (4 + i + 2));
 
+                if (frameBufferSend[4 + i] == FLAG) {
+                    frameBufferSend[4 + i] = ESC;
+                    frameBufferSend[4 + i + 1] = FLAG^0x20;
+                } else if (frameBufferSend[4 + i] == ESC) {
+                    frameBufferSend[4 + i] = ESC;
+                    frameBufferSend[4 + i + 1] = ESC^0x20;
+                }
+                i++;
+            }
+        }
+       
+    }
+    
     // Supervision frame received
     unsigned char* frameBufferReceive = (unsigned char*)malloc(FRAME_SIZE_S * sizeof(unsigned char));
     if (frameBufferReceive == NULL) {
@@ -324,7 +339,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
         return ERROR;
     }
 
-    State state = WAITING_FLAG;
+    SupervisionState state = S_WAITING_FLAG;
     int byte;
     unsigned char buffer_read = 0;
     alarmCount = 0;
@@ -351,56 +366,56 @@ int llwrite(const unsigned char *buf, int bufSize) {
         byte = readByteSerialPort(&buffer_read);
         if (byte > 0) {
             switch (state) {
-                case WAITING_FLAG:
+                case S_WAITING_FLAG:
                     if (buffer_read == FLAG) {
                         frameBufferReceive[0] = buffer_read;
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     }
                     break;
-                case WAITING_ADDR:
+                case S_WAITING_ADDR:
                     if (buffer_read == A0) {
                         frameBufferReceive[1] = buffer_read;
-                        state = WAITING_CTRL;
+                        state = S_WAITING_CTRL;
                     } else if (buffer_read != FLAG) {
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     }
                     break;
-                case WAITING_CTRL:
+                case S_WAITING_CTRL:
                     if (buffer_read == REJ(0) || buffer_read == REJ(1) || buffer_read == RR(0) || buffer_read == RR(1)) {
                         frameBufferReceive[2] = buffer_read;
-                        state = WAITING_BCC1;
+                        state = S_WAITING_BCC1;
                     } else if (buffer_read == FLAG) {
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     } else {
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     }
                     break;
-                case WAITING_BCC1:
+                case S_WAITING_BCC1:
                     if (buffer_read == (frameBufferReceive[1] ^ frameBufferReceive[2])) {
                         frameBufferReceive[3] = buffer_read;
-                        state = WAITING_FLAG2;
+                        state = S_WAITING_FLAG2;
                     } else if (buffer_read == FLAG) {
-                        state = WAITING_ADDR;
+                        state = S_WAITING_ADDR;
                     } else {
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     }
                     break;
-                case WAITING_FLAG2:
+                case S_WAITING_FLAG2:
                     if (buffer_read == FLAG) {
                         frameBufferReceive[4] = buffer_read;
-                        state = STOP_STATE;
+                        state = S_STOP_STATE;
                         alarm(0);
                     } else {
-                        state = WAITING_FLAG;
+                        state = S_WAITING_FLAG;
                     }
                     break;
                 default:
-                    state = WAITING_FLAG;
+                    state = S_WAITING_FLAG;
             }
         }
 
         // Actions after receiving frame
-        if (state == STOP_STATE) {
+        if (state == S_STOP_STATE) {
 
             if (frameBufferReceive[2] == REJ(0)) {
                 printf("REJ(0) received\n");
@@ -451,59 +466,60 @@ int llread(unsigned char *packet)
 {
 
     // State machine
-    State state = WAITING_FLAG;
-    unsigned char* byte_read = 0;
+    InformationState state = I_WAITING_FLAG;
+    unsigned char byte_read = 0;
     unsigned char received_IF = 0;
     int byte_nr = 0;
-    while (state != STOP_STATE) {
-        if (readByteSerialPort(byte_read) > 0) {
+    while (state != I_STOP_STATE) {
+        if (readByteSerialPort(&byte_read) > 0) {
             switch (state) {
-                case WAITING_FLAG:
-                    if (*byte_read == FLAG) {
-                        state = WAITING_ADDR;
+                case I_WAITING_FLAG:
+                    if (byte_read == FLAG) {
+                        state = I_WAITING_ADDR;
                     }
                     break;
-                case WAITING_ADDR:
-                    if (*byte_read == A0) {
-                        state = WAITING_CTRL;
-                    } else if (*byte_read == FLAG) {
-                        state = WAITING_ADDR;
+                case I_WAITING_ADDR:
+                    if (byte_read == A0) {
+                        state = I_WAITING_CTRL;
+                    } else if (byte_read == FLAG) {
+                        state = I_WAITING_ADDR;
                     } else {
-                        state = WAITING_FLAG;
+                        state = I_WAITING_FLAG;
                     }
                     break;
-                case WAITING_CTRL:
+                case I_WAITING_CTRL:
                     // DUVIDA: Se eu receber o frame nao esperado, é um duplicado? E transmitter guarda o frame anterior ao enviado,
                     // e tem capacidade para enviá-lo caso receba um rej?. i.e o q fazer se no receiver eu receber um Information frame number 
                     // diferente do esperado??
-                    if (byte_read == C_IF(0) || *byte_read == C_IF(1)) {
-                        received_IF = *byte_read;
-                        state = WAITING_BCC1;
-                    } else if (*byte_read == FLAG) {
-                        state = WAITING_ADDR;
+                    if (byte_read == C_IF(0) || byte_read == C_IF(1)) {
+                        received_IF = byte_read;
+                        state = I_WAITING_BCC1;
+                    } else if (byte_read == FLAG) {
+                        state = I_WAITING_ADDR;
                     } else {
-                        state = WAITING_FLAG;
+                        state = I_WAITING_FLAG;
                     }
                     break;
-                case WAITING_BCC1:
-                    if (*byte_read == (A0 ^ C_IF(0)) || *byte_read == (A0 ^ C_IF(1))) {
-                        state = WAITING_DATA;
-                    } else if (*byte_read == FLAG) {
-                        state = WAITING_ADDR;
+                case I_WAITING_BCC1:
+                    if (byte_read == (A0 ^ C_IF(0)) || byte_read == (A0 ^ C_IF(1))) {
+                        state = I_WAITING_DATA;
+                    } else if (byte_read == FLAG) {
+                        state = I_WAITING_ADDR;
                     } else {
-                        state = WAITING_FLAG;
+                        state = I_WAITING_FLAG;
                     }
                     break;
-                case WAITING_DATA:
-                    if (*byte_read == ESC) {
-                        state = ESC_OCT_RCV;
+                case I_WAITING_DATA:
+                    if (byte_read == ESC) {
+                        state = I_ESC_OCT_RCV;
                     }
-                    else if (*byte_read == FLAG) {
-
+                    else if (byte_read == FLAG) {
+                        
+                
                         unsigned char bcc2_rcv = packet[byte_nr - 1];
+                        byte_nr--;
                         unsigned char bcc2_actual = 0;
 
-                        packet[byte_nr - 1] = '\0';
 
                         for (size_t i = 0; i < byte_nr; i++)
                         {
@@ -514,25 +530,26 @@ int llread(unsigned char *packet)
                         {
                             // Frame received, ready to receive next frame
                             if (C_IF(Ns) == received_IF) {
-                                state = STOP_STATE;
+                                state = I_STOP_STATE;
                                 Ns ^= 1;
 
-                                unsigned char* frame = NULL;
+                                unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, A0, RR(Ns));
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write RR frame");
                                     exit(ERROR);
                                 }
+
                                 return byte_nr;
                             }
 
                             // Duplicate frame, discarding
                             else
                             {
-                                state = STOP_STATE;
+                                state = I_STOP_STATE;
 
-                                unsigned char* frame = NULL;
+                                unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, RR(Ns),A0);
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
@@ -548,7 +565,7 @@ int llread(unsigned char *packet)
                         {
                             if (C_IF(Ns) == received_IF) 
                             {
-                                unsigned char* frame = NULL;
+                                unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, A0,REJ(received_IF >> 7));
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
@@ -559,8 +576,8 @@ int llread(unsigned char *packet)
                             }
                             else
                             {
-                                state = STOP_STATE;
-                                unsigned char* frame = NULL;
+                                state = I_STOP_STATE;
+                                unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, RR(Ns),A0);
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
@@ -575,17 +592,17 @@ int llread(unsigned char *packet)
 
                     // Reading data
                     else {
-                        packet[byte_nr] = *byte_read;
+                        packet[byte_nr] = byte_read;
                         byte_nr++;
                     }
                     break;
-                case ESC_OCT_RCV:
-                    packet[byte_nr] = *byte_read^0x20;
+                case I_ESC_OCT_RCV:
+                    packet[byte_nr] = byte_read^0x20;
                     byte_nr++;
-                    state = WAITING_DATA;
+                    state = I_WAITING_DATA;
                     break;
                 default:
-                    state = WAITING_FLAG;
+                    state = I_WAITING_FLAG;
             }
         }
     }
@@ -603,7 +620,7 @@ int llclose(int showStatistics) {
         return ERROR;
     }
 
-    State state;
+    SupervisionState state;
     alarmCount = 0;
     alarmRinging = FALSE;
 
@@ -626,9 +643,9 @@ int llclose(int showStatistics) {
 
         unsigned char buffer_read = 0;
         int byte;
-        state = WAITING_FLAG;
+        state = S_WAITING_FLAG;
 
-        while (state != STOP_STATE && alarmCount < nRetransmissions) {
+        while (state != S_STOP_STATE && alarmCount < nRetransmissions) {
             // Sending DISC frame
             if (!alarmRinging) {
                 alarmRinging = TRUE;
@@ -650,54 +667,56 @@ int llclose(int showStatistics) {
 
             if (byte > 0) {
                 switch (state) {
-                    case WAITING_FLAG:
+                    case S_WAITING_FLAG:
                         if (buffer_read == FLAG) {
                             frameBufferReceive[0] = buffer_read;
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         }
                         break;
-                    case WAITING_ADDR:
+                    case S_WAITING_ADDR:
                         if (buffer_read == A1) {
                             frameBufferReceive[1] = buffer_read;
-                            state = WAITING_CTRL;
+                            state = S_WAITING_CTRL;
                         } else if (buffer_read != FLAG) {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_CTRL:
+                    case S_WAITING_CTRL:
                         if (buffer_read == DISC) {
                             frameBufferReceive[2] = buffer_read;
-                            state = WAITING_BCC1;
+                            state = S_WAITING_BCC1;
                         } else if (buffer_read == FLAG) {
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_BCC1:
+                    case S_WAITING_BCC1:
                         if (buffer_read == (frameBufferReceive[1] ^ frameBufferReceive[2])) {
                             frameBufferReceive[3] = buffer_read;
-                            state = WAITING_FLAG2;
+                            state = S_WAITING_FLAG2;
                         } else if (buffer_read == FLAG) {
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_FLAG2:
+                    case S_WAITING_FLAG2:
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
-                            state = STOP_STATE;
+                            state = S_STOP_STATE;
                             alarm(0);
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
+                    default:
+                        state = S_WAITING_FLAG;
                 }
             }
         }
 
-        if (state != STOP_STATE) {
+        if (state != S_STOP_STATE) {
             perror("ERROR: Timeout during receiving DISC\n");
             free(frameBufferSend);
             free(frameBufferReceive);
@@ -725,66 +744,68 @@ int llclose(int showStatistics) {
         printf("LLCLOSE: LlRx\n");
         unsigned char buffer_read = 0;
         int byte;
-        state = WAITING_FLAG;
+        state = S_WAITING_FLAG;
 
         // Receiver logic
-        while (state != STOP_STATE) {
+        while (state != S_STOP_STATE) {
             byte = readByteSerialPort(&buffer_read);
             if (byte > 0) {
                 switch (state) {
-                    case WAITING_FLAG:
+                    case S_WAITING_FLAG:
                         if (buffer_read == FLAG) {
                             frameBufferReceive[0] = buffer_read;
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         }
                         break;
-                    case WAITING_ADDR:
+                    case S_WAITING_ADDR:
                         if (buffer_read == A0) {
                             frameBufferReceive[1] = buffer_read;
-                            state = WAITING_CTRL;
+                            state = S_WAITING_CTRL;
                         } else if (buffer_read != FLAG) {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_CTRL:
+                    case S_WAITING_CTRL:
                         if (buffer_read == DISC) {
                             frameBufferReceive[2] = buffer_read;
-                            state = WAITING_BCC1;
+                            state = S_WAITING_BCC1;
                         } else if (buffer_read == FLAG) {
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_BCC1:
+                    case S_WAITING_BCC1:
                         if (buffer_read == (frameBufferReceive[1] ^ frameBufferReceive[2])) {
                             frameBufferReceive[3] = buffer_read;
-                            state = WAITING_FLAG2;
+                            state = S_WAITING_FLAG2;
                         } else if (buffer_read == FLAG) {
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_FLAG2:
+                    case S_WAITING_FLAG2:
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
-                            state = STOP_STATE;
+                            state = S_STOP_STATE;
                             alarm(0);
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
+                    default:
+                        state = S_WAITING_FLAG;
                 }
             }
         }
 
         // Create DISC frame
         buildFrameSupervision(frameBufferSend, A1, DISC);
-        state = WAITING_FLAG;
+        state = S_WAITING_FLAG;
         alarmCount = 0;
 
-        while (state != STOP_STATE && alarmCount < nRetransmissions) {
+        while (state != S_STOP_STATE && alarmCount < nRetransmissions) {
             
             // Sending DISC frame
             if (!alarmRinging) {
@@ -806,54 +827,56 @@ int llclose(int showStatistics) {
             byte = readByteSerialPort(&buffer_read);
             if (byte > 0) {
                 switch (state) {
-                    case WAITING_FLAG:
+                    case S_WAITING_FLAG:
                         if (buffer_read == FLAG) {
                             frameBufferReceive[0] = buffer_read;
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         }
                         break;
-                    case WAITING_ADDR:
+                    case S_WAITING_ADDR:
                         if (buffer_read == A1) {
                             frameBufferReceive[1] = buffer_read;
-                            state = WAITING_CTRL;
+                            state = S_WAITING_CTRL;
                         } else if (buffer_read != FLAG) {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_CTRL:
+                    case S_WAITING_CTRL:
                         if (buffer_read == UA) {
                             frameBufferReceive[2] = buffer_read;
-                            state = WAITING_BCC1;
+                            state = S_WAITING_BCC1;
                         } else if (buffer_read == FLAG) {
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_BCC1:
+                    case S_WAITING_BCC1:
                         if (buffer_read == (frameBufferReceive[1] ^ frameBufferReceive[2])) {
                             frameBufferReceive[3] = buffer_read;
-                            state = WAITING_FLAG2;
+                            state = S_WAITING_FLAG2;
                         } else if (buffer_read == FLAG) {
-                            state = WAITING_ADDR;
+                            state = S_WAITING_ADDR;
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
-                    case WAITING_FLAG2:
+                    case S_WAITING_FLAG2:
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
-                            state = STOP_STATE;
+                            state = S_STOP_STATE;
                             alarm(0);
                         } else {
-                            state = WAITING_FLAG;
+                            state = S_WAITING_FLAG;
                         }
                         break;
+                    default:
+                        state = S_WAITING_FLAG;
                 }
             }
         }
 
-        if (state != STOP_STATE) {
+        if (state != S_STOP_STATE) {
             perror("ERROR: Timeout during receiving UA frame\n");
             free(frameBufferSend);
             free(frameBufferReceive);

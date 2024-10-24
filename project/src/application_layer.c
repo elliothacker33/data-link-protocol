@@ -16,16 +16,16 @@
 #define FALSE 0
 #define TRUE 1
 // Control Field
-#define START 1
-#define DATA 2
-#define END 3
+#define START 0x01
+#define DATA 0x02
+#define END 0x03
 // T value
-#define FILE_SIZE 0
-#define FILE_NAME 1
+#define FILE_SIZE 0x00
+#define FILE_NAME 0x01
 
-size_t getFileSize(FILE* fptr){
+long getFileSize(FILE* fptr){
 
-    if ((fseek(fptr, 0, SEEK_END))== ERROR) {
+    if ((fseek(fptr, 0, SEEK_END)) == ERROR) {
         perror("ERROR: Unable to seek to end of file\n");
         exit(ERROR);
     }
@@ -36,13 +36,13 @@ size_t getFileSize(FILE* fptr){
         exit(ERROR);
     }
     rewind(fptr);
-    return (size_t) fileSize;
+    return fileSize;
 }
 
-unsigned char* buildControlPacket(int fileSize, const char* filename, size_t* sizePacket, int control){
+unsigned char* buildControlPacket(long fileSize, const char* filename, int* sizePacket, unsigned char control){
 
-    size_t l1 = (fileSize > 0) ? (int)(log2(fileSize) / log2(256)) + 1 : 1;
-    size_t l2 = strlen(filename) + 1;
+    int l1 = (fileSize > 0) ? (int)(log2(fileSize) / log2(256)) + 1 : 1;
+    int l2 = strlen(filename) + 1;
     (*sizePacket) = 5 + l1 + l2;
 
     unsigned char* controlPacket = (unsigned char*)malloc((*sizePacket) * sizeof(unsigned char));
@@ -53,24 +53,25 @@ unsigned char* buildControlPacket(int fileSize, const char* filename, size_t* si
 
     controlPacket[0] = control; // C
     controlPacket[1] = FILE_SIZE; // T1
-    controlPacket[2] = l1; // L1
+    controlPacket[2] = (unsigned char) l1; // L1
 
     //V1
-    for (int i = 0; i < l1; i++){
+    for (int i = 0 ; i < l1; i++){
         controlPacket[3 + i] = (fileSize >> (8 * i)) & 0xFF;
     }
 
     controlPacket[3 + l1] = FILE_NAME; //T2
-    controlPacket[4 + l1] = l2; //L2
+    controlPacket[4 + l1] = (unsigned char) l2; //L2
 
     //V2
     for (int i = 0; i < l2; i++){
         controlPacket[5 + l1 + i] = filename[i];
     }
+
     return controlPacket;
 }
 
-unsigned char* buildDataPacket(FILE* fptr, size_t payload, size_t s, size_t* sizeDataPacket){
+unsigned char* buildDataPacket(FILE* fptr, int payload, int s, int* sizeDataPacket){
 
     (*sizeDataPacket) = payload + 4;
     unsigned char* dataPacket = (unsigned char*)malloc((*sizeDataPacket) * sizeof(unsigned char));
@@ -83,7 +84,7 @@ unsigned char* buildDataPacket(FILE* fptr, size_t payload, size_t s, size_t* siz
     dataPacket[0] = DATA;
     dataPacket[1] = (unsigned char) s;
     dataPacket[2] = (unsigned char) (payload >> 8) & 0xFF;
-    dataPacket[3] = (unsigned char) (payload & 0xFF);
+    dataPacket[3] = (unsigned char) payload & 0xFF;
 
     for (int i = 0; i < payload; i++){
         int byte = fgetc(fptr);
@@ -136,10 +137,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         // File size
-        size_t fileSize = getFileSize(fPtr);
+        long fileSize = getFileSize(fPtr);
 
         // Start packet
-        size_t sizeStartPacket;
+        int sizeStartPacket = 0;
         unsigned char* startPacket = buildControlPacket(fileSize, filename, &sizeStartPacket,START);
         if (llwrite(startPacket, sizeStartPacket) == ERROR){
             perror("ERROR: Error sending start packet\n");
@@ -148,10 +149,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         free(startPacket);
 
         // Data packets
-        size_t s = 0; // Sequence number
-        size_t usePayload;
-        size_t sendPayload = fileSize;
-        size_t sizeDataPacket;
+        int s = 0; // Sequence number
+        int usePayload;
+        int sendPayload = fileSize;
+        int sizeDataPacket;
 
         while (sendPayload > 0) {
             if (sendPayload > MAX_PAYLOAD_SIZE){
@@ -163,6 +164,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             // Data packet
             unsigned char* dataPacket = buildDataPacket(fPtr, usePayload, s, &sizeDataPacket);
+            
+
             if (llwrite(dataPacket, sizeDataPacket) == ERROR){
                 perror("ERROR: Error sending data packet\n");
                 exit(ERROR);
@@ -178,7 +181,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         // End packet
-        size_t sizeEndPacket;
+        int sizeEndPacket = 0;
         unsigned char* endPacket = buildControlPacket(fileSize, filename, &sizeEndPacket,END);
         if (llwrite(endPacket, sizeEndPacket) == ERROR){
             perror("ERROR: Error sending start packet\n");
@@ -204,19 +207,38 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     }
     else if (strcmp(role, "rx") == 0) {
+
         openConnection.role = LlRx;
         fd = llopen(openConnection);
 
-        if (fd == -1) {
+        if (fd == ERROR) {
             perror("Error: Error opening connection");
+            exit(ERROR);
+        }
+
+        unsigned char* packet = (unsigned char*) malloc((MAX_PAYLOAD_SIZE + 4)*sizeof(unsigned char));
+        if (packet == NULL) {
+            perror("ERROR: Unable to allocate memory");
+            exit(ERROR);
+        }
+
+        int size = llread(packet);
+        if (size == -1){
+            perror("Error: Error reading packet");
             exit(-1);
         }
-        unsigned char* packet;
-        llread(packet);
 
-        if (packet[0] != START) return; 
+        if (packet[0] != START){
+            perror("Unexpected START packet");
+            free(packet);
+            exit(-1);
+        }
 
         FILE* file = fopen(filename, "wb");
+        if (file == NULL){
+            perror("ERROR: Error opening file\n");
+            exit(ERROR);
+        }
 
         while (TRUE) {
             int size = llread(packet);
@@ -225,17 +247,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 exit(-1);
             }
 
-            fwrite(packet+4, sizeof(unsigned char), size-4, file);
-
             if (packet[0] == END){
                 break;
             }
+            
+            fwrite(packet+4, sizeof(unsigned char), size-4, file);
         }
 
         fclose(file);
-
-
-       
 
         fd = llclose(0);
         if (fd == -1){
