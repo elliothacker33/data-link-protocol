@@ -429,14 +429,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 printf("REJ(1) received\n");
                 printf("Frames sent with errors\n");
             }
-            else if (frameBufferReceive[2] == RR(0) && Ns == 0){
-                printf("RR(0) received\n");
-                printf("Duplicate frames\n");
-            }
-            else if (frameBufferReceive[2] == RR(1) && Ns == 1){
-                printf("RR(1) received\n");
-                printf("Duplicate frames\n");
-            }
             else if (frameBufferReceive[2] == RR(1) && Ns == 0) {
                 Ns^=1;
                 printf("RR(1) received\n");
