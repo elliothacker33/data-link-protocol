@@ -31,7 +31,7 @@ size_t getFileSize(FILE* fptr){
         exit(ERROR);
     }
 
-    int fileSize = ftell(fptr);
+    long fileSize = ftell(fptr);
     if (fileSize == ERROR){
         perror("Error: Unable to obtain file size");
         exit(ERROR);
@@ -83,8 +83,8 @@ unsigned char* buildDataPacket(FILE* fptr, int payload, size_t s, size_t* sizeDa
 
     dataPacket[0] = DATA;
     dataPacket[1] = (unsigned char) s;
-    dataPacket[2] = (unsigned char) (payload / 256);
-    dataPacket[3] = (unsigned char) (payload % 256);
+    dataPacket[2] = (unsigned char) (payload >> 8) & 0xFF;
+    dataPacket[3] = (unsigned char) (payload & 0xFF);
 
     for (int i = 0; i < payload; i++){
         int byte = fgetc(fptr);
@@ -119,7 +119,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     int fd;
 
 
-    if ((*role) == 't'){
+    if (strcmp(role, "tx") == 0){
 
         // Open connection
         openConnection.role = LlTx;
@@ -203,7 +203,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
     }
-    else {
+    else if (strcmp(role, "rx") == 0) {
         openConnection.role = LlRx;
         fd = llopen(openConnection);
 
@@ -211,10 +211,33 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             perror("Error: Error opening connection");
             exit(-1);
         }
+        unsigned char* packet;
+        llread(packet);
+
+        if (packet[0] != START) return; 
+
+        FILE* file = fopen(filename, "wb");
+
+        while (TRUE) {
+            int size = llread(packet);
+            if (size == -1){
+                perror("Error: Error reading packet");
+                exit(-1);
+            }
+
+            fwrite(packet+4, sizeof(unsigned char), size-4, file);
+
+            if (packet[0] == END){
+                break;
+            }
+        }
+
+        fclose(file);
+
 
         fd = llclose(0);
         if (fd == -1){
-            perror("Error: Error opening connection");
+            perror("Error: Error clsosing connection");
             exit(-1);
         }
 
