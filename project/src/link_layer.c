@@ -75,7 +75,7 @@ void alarmHandler(int signal)
     if (signal == SIGALRM) {
         alarmRinging = FALSE;
         alarmCount++;
-        printf("Alarm #%d\n", alarmCount);
+        printf("Alarm #%d expired\n", alarmCount);
     }
     else{
         printf("Unexpected signal %d\n", signal);
@@ -110,7 +110,7 @@ void buildFrameInformation(unsigned char* frame, const unsigned char* data, cons
 // LLOPEN
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters)
-{
+{   
     int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
     if (fd == ERROR)
         return fd;
@@ -142,6 +142,7 @@ int llopen(LinkLayer connectionParameters)
             {
                 alarm(timeout); // Set alarm for 3 seconds
                 alarmRinging = TRUE;
+                state = S_WAITING_FLAG;
 
                 // Send the SET message
                 unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, SET, A0 ^ SET, FLAG};
@@ -188,7 +189,6 @@ int llopen(LinkLayer connectionParameters)
                     break;
                 case S_WAITING_FLAG2:
                     if (byte_read == FLAG){
-                        alarm(0);
                         state = S_STOP_STATE;
                     }
                     else {
@@ -270,7 +270,9 @@ int llopen(LinkLayer connectionParameters)
 // LLWRITE
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize) {
-
+    
+    // Alarm can be still running here from llopen(), when sigaction is called, alarm finished.
+    
     struct sigaction sa;
     sa.sa_handler = alarmHandler;
     sa.sa_flags = 0;
@@ -349,8 +351,10 @@ int llwrite(const unsigned char *buf, int bufSize) {
         
         // Sending information frame
         if (alarmRinging == FALSE) {
+
             alarmRinging = TRUE;
             alarm(timeout);
+            state = S_WAITING_FLAG;
             
             byte = writeBytesSerialPort(frameBufferSend, frameBytes);
             if (byte == ERROR) {
@@ -364,6 +368,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
         }
 
         byte = readByteSerialPort(&buffer_read);
+
         if (byte > 0) {
             switch (state) {
                 case S_WAITING_FLAG:
@@ -404,7 +409,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
                     if (buffer_read == FLAG) {
                         frameBufferReceive[4] = buffer_read;
                         state = S_STOP_STATE;
-                        alarm(0);
                     } else {
                         state = S_WAITING_FLAG;
                     }
@@ -414,8 +418,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
             }
         }
 
-        // Actions after receiving frame
-        if (state == S_STOP_STATE) {
+        // Actions after receiving frame (if byte < 0 and alarm too long keeps printing after reach STOP_STATE)
+        if (state == S_STOP_STATE && byte > 0) {
 
             if (frameBufferReceive[2] == REJ(0)) {
                 printf("REJ(0) received\n");
@@ -650,6 +654,7 @@ int llclose(int showStatistics) {
             if (!alarmRinging) {
                 alarmRinging = TRUE;
                 alarm(timeout);
+                state = S_WAITING_FLAG;
 
                 byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
                 if (byte == ERROR) {
@@ -705,7 +710,6 @@ int llclose(int showStatistics) {
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
                             state = S_STOP_STATE;
-                            alarm(0);
                         } else {
                             state = S_WAITING_FLAG;
                         }
@@ -789,7 +793,6 @@ int llclose(int showStatistics) {
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
                             state = S_STOP_STATE;
-                            alarm(0);
                         } else {
                             state = S_WAITING_FLAG;
                         }
@@ -811,6 +814,7 @@ int llclose(int showStatistics) {
             if (!alarmRinging) {
                 alarmRinging = TRUE;
                 alarm(timeout);
+                state = S_WAITING_FLAG;
 
                 byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
                 if (byte == ERROR) {
@@ -865,7 +869,6 @@ int llclose(int showStatistics) {
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
                             state = S_STOP_STATE;
-                            alarm(0);
                         } else {
                             state = S_WAITING_FLAG;
                         }

@@ -222,19 +222,20 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             exit(ERROR);
         }
 
-        int size = llread(packet);
-        if (size == -1){
-            perror("Error: Error reading packet");
-            exit(-1);
-        }
-
-        if (packet[0] != START){
-            perror("Unexpected START packet");
-            free(packet);
-            exit(-1);
+        while (TRUE){
+            int size = llread(packet);
+            if (size > 0){
+                if (packet[0] != START){
+                    perror("Unexpected START packet");
+                    free(packet);
+                    exit(-1);
+                }
+                break;
+            }
         }
 
         FILE* file = fopen(filename, "wb");
+
         if (file == NULL){
             perror("ERROR: Error opening file\n");
             exit(ERROR);
@@ -242,16 +243,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         while (TRUE) {
             int size = llread(packet);
-            if (size == -1){
-                perror("Error: Error reading packet");
-                exit(-1);
-            }
 
             if (packet[0] == END){
                 break;
             }
-            
-            fwrite(packet+4, sizeof(unsigned char), size-4, file);
+            if (size > 0){
+                fwrite(packet+4, sizeof(unsigned char), size-4, file);
+            }
         }
 
         fclose(file);
