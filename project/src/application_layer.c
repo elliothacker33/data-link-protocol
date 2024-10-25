@@ -174,7 +174,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             free(dataPacket);
 
             s++;
-            if (s > 255){
+            if (s > 99){
                 s = 0;
             }
             sendPayload -= usePayload;
@@ -259,8 +259,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             perror("Error: Error clsosing connection");
             exit(-1);
         }
-
-
+        
     }
 
 }

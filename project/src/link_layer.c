@@ -190,6 +190,7 @@ int llopen(LinkLayer connectionParameters)
                 case S_WAITING_FLAG2:
                     if (byte_read == FLAG){
                         state = S_STOP_STATE;
+                        alarm(0);
                     }
                     else {
                         state = S_WAITING_FLAG;
@@ -263,6 +264,7 @@ int llopen(LinkLayer connectionParameters)
             }
         }
     }
+
     return fd;
 }
 
@@ -270,9 +272,7 @@ int llopen(LinkLayer connectionParameters)
 // LLWRITE
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize) {
-    
-    // Alarm can be still running here from llopen(), when sigaction is called, alarm finished.
-    
+        
     struct sigaction sa;
     sa.sa_handler = alarmHandler;
     sa.sa_flags = 0;
@@ -409,6 +409,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                     if (buffer_read == FLAG) {
                         frameBufferReceive[4] = buffer_read;
                         state = S_STOP_STATE;
+                        alarm(0);
                     } else {
                         state = S_WAITING_FLAG;
                     }
@@ -418,7 +419,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
             }
         }
 
-        // Actions after receiving frame (if byte < 0 and alarm too long keeps printing after reach STOP_STATE)
         if (state == S_STOP_STATE && byte > 0) {
 
             if (frameBufferReceive[2] == REJ(0)) {
@@ -702,6 +702,7 @@ int llclose(int showStatistics) {
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
                             state = S_STOP_STATE;
+                            alarm(0);
                         } else {
                             state = S_WAITING_FLAG;
                         }
@@ -861,6 +862,7 @@ int llclose(int showStatistics) {
                         if (buffer_read == FLAG) {
                             frameBufferReceive[4] = buffer_read;
                             state = S_STOP_STATE;
+                            alarm(0);
                         } else {
                             state = S_WAITING_FLAG;
                         }
