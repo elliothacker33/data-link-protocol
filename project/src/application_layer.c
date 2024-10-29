@@ -104,11 +104,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {   
     // Ask for statistics
-    /*
-    int showStats;
-    printf("0 - hide statistics 1 - show statistics: ");
-    scanf("%d", &showStats);
-    */
+    
+    // int showStats;
+    // printf("0 - hide statistics 1 - show statistics: ");
+    // scanf("%d", &showStats);
+   
 
     // Create Link Layer settings
     LinkLayer openConnection;
@@ -199,9 +199,9 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         // Close connection
         int closeConnection;
-        closeConnection = llclose(0);
+        closeConnection = llclose(1);
         if (closeConnection == ERROR){
-            perror("ERROR: Error opening connection\n");
+            perror("ERROR: Error closing connection\n");
             exit(ERROR);
         }
 
@@ -254,7 +254,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         fclose(file);
 
-        fd = llclose(0);
+        fd = llclose(1);
         if (fd == -1){
             perror("Error: Error clsosing connection");
             exit(-1);

@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <string.h>
+#include <sys/time.h>
 
 // MISC
 
@@ -45,6 +46,8 @@ int alarmCount = 0;
 // Byte stuffing
 #define ESC 0x7D
 
+// Statistics
+struct timeval  tv1, tv2;
 
 typedef enum SupervisionState
 {
@@ -114,6 +117,7 @@ int llopen(LinkLayer connectionParameters)
     int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
     if (fd == ERROR)
         return fd;
+    printf("Serial port opened\n");
 
     // Define parameters
     role = connectionParameters.role;
@@ -191,6 +195,9 @@ int llopen(LinkLayer connectionParameters)
                     if (byte_read == FLAG){
                         state = S_STOP_STATE;
                         alarm(0);
+                        printf("Connection established\n");
+                        gettimeofday(&tv1, NULL);
+                        printf("Starting counting now\n");
                     }
                     else {
                         state = S_WAITING_FLAG;
@@ -536,7 +543,7 @@ int llread(unsigned char *packet)
                                     perror("Failed to write RR frame");
                                     exit(ERROR);
                                 }
-
+                                printf("Writing RR(%d) frame\n", Ns);
                                 return byte_nr;
                             }
 
@@ -552,6 +559,7 @@ int llread(unsigned char *packet)
                                     perror("Failed to write RR packet");
                                     exit(ERROR);
                                 }
+                                printf("Duplicate frame, writing RR(%d) frame\n", Ns);
                                 // ignore packet received till now
                                 return 0;
                             }
@@ -568,6 +576,7 @@ int llread(unsigned char *packet)
                                     perror("Failed to write REJ frame\n");
                                     exit(ERROR);
                                 }
+                                printf("Writing REJ(%d) frame\n", received_IF >> 7);
                                 return -1;
                             }
                             else
@@ -736,6 +745,8 @@ int llclose(int showStatistics) {
         } else {
             printf("UA frame sent, bytes written = %d\n",byte);
         }
+        gettimeofday(&tv2, NULL);
+        printf("Stopping counting now\n");
 
     } else if (role == LlRx) {
         printf("LLCLOSE: LlRx\n");
@@ -897,7 +908,9 @@ int llclose(int showStatistics) {
     }
     
     if (showStatistics == TRUE){
-        // Do statistics
+        printf ("Total time = %f seconds\n",
+         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+         (double) (tv2.tv_sec - tv1.tv_sec));
     }
     return clstat;
 }
