@@ -352,14 +352,16 @@ int llwrite(const unsigned char *buf, int bufSize) {
     int byte;
     unsigned char buffer_read = 0;
     alarmCount = 0;
+    int rejected_frame = FALSE;
     alarmRinging = FALSE;
 
     while (alarmCount < nRetransmissions) {
-        
+
         // Sending information frame
-        if (alarmRinging == FALSE) {
+        if (alarmRinging == FALSE || rejected_frame == TRUE) {
 
             alarmRinging = TRUE;
+            rejected_frame = FALSE;
             alarm(timeout);
             state = S_WAITING_FLAG;
             
@@ -431,10 +433,16 @@ int llwrite(const unsigned char *buf, int bufSize) {
             if (frameBufferReceive[2] == REJ(0)) {
                 printf("REJ(0) received\n");
                 printf("Frames sent with errors\n");
+                state = S_WAITING_FLAG;
+                rejected_frame = TRUE;
+                // nRetransmissions--;
             }
             else if (frameBufferReceive[2] == REJ(1)) {
                 printf("REJ(1) received\n");
                 printf("Frames sent with errors\n");
+                state = S_WAITING_FLAG;
+                rejected_frame = TRUE;
+                // nRetransmissions--;
             }
             else if (frameBufferReceive[2] == RR(1) && Ns == 0) {
                 Ns^=1;
