@@ -2,12 +2,7 @@
 // Link layer protocol implementation
 #include "link_layer.h"
 #include "serial_port.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
-#include <string.h>
-#include <sys/time.h>
+
 
 // MISC
 
@@ -18,10 +13,6 @@ int alarmRinging = FALSE;
 int alarmCount = 0;
 
 // Definitions
-
-// Results
-#define OK 0
-#define ERROR -1
 // Booleans
 #define FALSE 0
 #define TRUE 1
@@ -93,11 +84,11 @@ void buildFrameSupervision(unsigned char* frame, const unsigned char address, co
     frame[4] = FLAG;
 }
 
-void buildFrameInformation(unsigned char* frame, const unsigned char* data, const unsigned char address, const unsigned char control, const int bytes){
+void buildFrameInformation(unsigned char* frame, const unsigned char* data, const unsigned char control, const int bytes){
     frame[0] = FLAG;
-    frame[1] = address;
+    frame[1] = A0;
     frame[2] = control;
-    frame[3] = address ^ control;
+    frame[3] = A0 ^ control;
 
     unsigned char bcc2 = 0;
     for (int i = 0; i < bytes; i++){
@@ -115,7 +106,7 @@ void buildFrameInformation(unsigned char* frame, const unsigned char* data, cons
 int llopen(LinkLayer connectionParameters)
 {   
     int fd = openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
-    if (fd == ERROR)
+    if (fd == -1)
         return fd;
     printf("Serial port opened\n");
 
@@ -134,7 +125,7 @@ int llopen(LinkLayer connectionParameters)
 
     if (sigaction(SIGALRM, &sa, 0) == -1){
         perror("ERROR: Setting signal handler\n");
-        exit(ERROR);
+        exit(-1);
     }
 
     if (role == LlTx)
@@ -153,7 +144,7 @@ int llopen(LinkLayer connectionParameters)
                 if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
                 {
                     perror("Failed to write SET frame\n");
-                    exit(ERROR);
+                    exit(-1);
                 }
             }
 
@@ -210,7 +201,7 @@ int llopen(LinkLayer connectionParameters)
         }
         if (state != S_STOP_STATE){
             perror("Failed to establish connection\n");
-            exit(ERROR);
+            exit(-1);
         }
     }
     else if (connectionParameters.role == LlRx)
@@ -258,7 +249,7 @@ int llopen(LinkLayer connectionParameters)
                         if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
                         {
                             perror("Failed to write UA frame\n");
-                            exit(ERROR);
+                            exit(-1);
                         }
                         state = S_STOP_STATE;
                     }
@@ -283,14 +274,14 @@ int llwrite(const unsigned char *buf, int bufSize) {
     struct sigaction sa;
     sa.sa_handler = alarmHandler;
     sa.sa_flags = 0;
-    if (sigaction(SIGALRM, &sa, 0) == ERROR) {
+    if (sigaction(SIGALRM, &sa, 0) == -1) {
         perror("ERROR: Setting signal handler\n");
-        return ERROR;
+        return -1;
     }
 
     if (buf == NULL) {
         perror("ERROR: buffer is null\n");
-        return ERROR;
+        return -1;
     }
 
     int frameBytes = bufSize + 6;
@@ -298,9 +289,9 @@ int llwrite(const unsigned char *buf, int bufSize) {
     unsigned char* frameBufferSend = (unsigned char*)malloc(frameBytes * sizeof(unsigned char));
     if (frameBufferSend == NULL) {
         perror("ERROR: Allocating memory for frameBufferSend\n");
-        return ERROR;
+        return -1;
     }
-    buildFrameInformation(frameBufferSend, buf, A0, C_IF(Ns), bufSize);
+    buildFrameInformation(frameBufferSend, buf, C_IF(Ns), bufSize);
 
     int extraBytes = 0;
 
@@ -318,7 +309,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
         frameBufferSend = realloc(frameBufferSend, frameBytes);
         if (frameBufferSend == NULL) {
             perror("ERROR: Reallocating memory for frameBufferSend\n");
-            return ERROR;
+            free(frameBufferSend);
+            return -1;
         }
         
        
@@ -345,35 +337,40 @@ int llwrite(const unsigned char *buf, int bufSize) {
     if (frameBufferReceive == NULL) {
         perror("ERROR: Allocating memory for frameBufferReceive\n");
         free(frameBufferSend);
-        return ERROR;
+        return -1;
     }
 
     SupervisionState state = S_WAITING_FLAG;
     int byte;
     unsigned char buffer_read = 0;
     alarmCount = 0;
+    int lastAlarmCount = 0;
+    int rejected_frame = FALSE;
     alarmRinging = FALSE;
 
     while (alarmCount < nRetransmissions) {
         
         // Sending information frame
-        if (alarmRinging == FALSE) {
-
-            alarmRinging = TRUE;
-            alarm(timeout);
+        if (alarmRinging == FALSE || rejected_frame == TRUE) {
+            
+            lastAlarmCount = alarmCount;
             state = S_WAITING_FLAG;
+            alarmRinging = TRUE;
+            rejected_frame = FALSE;
+            alarm(timeout);
             
             byte = writeBytesSerialPort(frameBufferSend, frameBytes);
-            if (byte == ERROR) {
+            if (byte == -1) {
                 perror("ERROR: writing bytes to serial port\n");
                 free(frameBufferSend);
                 free(frameBufferReceive);
-                return ERROR;
+                return -1;
             } else {
                 printf("I%d sent, bytes written = %d \n",Ns,byte);
             }
         }
 
+        
         byte = readByteSerialPort(&buffer_read);
 
         if (byte > 0) {
@@ -427,26 +424,21 @@ int llwrite(const unsigned char *buf, int bufSize) {
         }
 
         if (state == S_STOP_STATE && byte > 0) {
-
-            if (frameBufferReceive[2] == REJ(0)) {
-                printf("REJ(0) received\n");
+            if (frameBufferReceive[2] == REJ(0) || frameBufferReceive[2] == REJ(1)) {
+                printf("REJ(%d) received\n", frameBufferReceive[2] == REJ(0) ? 0 : 1);
                 printf("Frames sent with errors\n");
-            }
-            else if (frameBufferReceive[2] == REJ(1)) {
-                printf("REJ(1) received\n");
-                printf("Frames sent with errors\n");
-            }
-            else if (frameBufferReceive[2] == RR(1) && Ns == 0) {
-                Ns^=1;
-                printf("RR(1) received\n");
-                printf("Frames sent and received successfully\n");
-                free(frameBufferSend);
-                free(frameBufferReceive);
-                return frameBytes;
-            }
-            else if (frameBufferReceive[2] == RR(0) && Ns == 1) {
-                Ns^=1;
-                printf("RR(0) received\n");
+                rejected_frame = TRUE;
+                if (alarmCount == lastAlarmCount) {
+                    alarmCount++;
+                    printf("Alarm #%d finished before expected time (REJ)\n", alarmCount);
+                }
+                else{
+                    printf("Alarm #%d expired\n", alarmCount);
+                }
+            } 
+            else if ((frameBufferReceive[2] == RR(0) && Ns == 1) || (frameBufferReceive[2] == RR(1) && Ns == 0)) {
+                Ns ^= 1;
+                printf("RR(%d) received\n", frameBufferReceive[2] == RR(0) ? 0 : 1);
                 printf("Frames sent and received successfully\n");
                 free(frameBufferSend);
                 free(frameBufferReceive);
@@ -457,7 +449,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     free(frameBufferSend);
     free(frameBufferReceive);
-    return ERROR;
+    return -1;
 }
 
 
@@ -541,7 +533,7 @@ int llread(unsigned char *packet)
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write RR frame");
-                                    exit(ERROR);
+                                    exit(-1);
                                 }
                                 printf("Writing RR(%d) frame\n", Ns);
                                 return byte_nr;
@@ -557,7 +549,7 @@ int llread(unsigned char *packet)
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write RR packet");
-                                    exit(ERROR);
+                                    exit(-1);
                                 }
                                 printf("Duplicate frame, writing RR(%d) frame\n", Ns);
                                 // ignore packet received till now
@@ -574,7 +566,7 @@ int llread(unsigned char *packet)
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write REJ frame\n");
-                                    exit(ERROR);
+                                    exit(-1);
                                 }
                                 printf("Writing REJ(%d) frame\n", received_IF >> 7);
                                 return -1;
@@ -587,7 +579,7 @@ int llread(unsigned char *packet)
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write RR frame\n");
-                                    exit(ERROR);
+                                    exit(-1);
                                 }
                                 // ignore packet received till now
                                 return 0;
@@ -620,9 +612,9 @@ int llclose(int showStatistics) {
     struct sigaction sa;
     sa.sa_handler = alarmHandler;
     sa.sa_flags = 0;
-    if (sigaction(SIGALRM, &sa, 0) == ERROR) {
+    if (sigaction(SIGALRM, &sa, 0) == -1) {
         perror("ERROR: Setting signal handler\n");
-        return ERROR;
+        return -1;
     }
 
     SupervisionState state;
@@ -633,12 +625,12 @@ int llclose(int showStatistics) {
     unsigned char* frameBufferSend = malloc(FRAME_SIZE_S * sizeof(unsigned char));
     if (frameBufferSend == NULL) {
         perror("ERROR: Allocating memory for frameBufferSend\n");
-        return ERROR;
+        return -1;
     }
     unsigned char* frameBufferReceive = malloc(FRAME_SIZE_S * sizeof(unsigned char));
     if (frameBufferReceive == NULL) {
         perror("ERROR: Allocating memory for frameBufferReceive\n");
-        return ERROR;
+        return -1;
     }   
 
     if (role == LlTx) {
@@ -658,11 +650,11 @@ int llclose(int showStatistics) {
                 state = S_WAITING_FLAG;
 
                 byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
-                if (byte == ERROR) {
+                if (byte == -1) {
                     perror("Error writing bytes to serial port\n");
                     free(frameBufferSend);
                     free(frameBufferReceive);
-                    exit(ERROR);
+                    exit(-1);
                 } else {
                     printf("DISC frame sent, bytes written = %d \n", byte);
                 }
@@ -726,7 +718,7 @@ int llclose(int showStatistics) {
             perror("ERROR: Timeout during receiving DISC\n");
             free(frameBufferSend);
             free(frameBufferReceive);
-            return ERROR;
+            return -1;
         }
         else{
             printf("DISC frame received\n");
@@ -737,11 +729,11 @@ int llclose(int showStatistics) {
         buildFrameSupervision(frameBufferSend, A1, UA);
 
         byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
-        if (byte == ERROR) {
+        if (byte == -1) {
             perror("Error writing bytes to serial port\n");
             free(frameBufferSend);
             free(frameBufferReceive);
-            return ERROR;
+            return -1;
         } else {
             printf("UA frame sent, bytes written = %d\n",byte);
         }
@@ -821,11 +813,11 @@ int llclose(int showStatistics) {
                 state = S_WAITING_FLAG;
 
                 byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
-                if (byte == ERROR) {
+                if (byte == -1) {
                     perror("Error writing bytes to serial port\n");
                     free(frameBufferSend);
                     free(frameBufferReceive);
-                    return ERROR;
+                    return -1;
                 } else {
                     printf("DISC frame sent, bytes written = %d\n",byte);
                 }
@@ -888,7 +880,7 @@ int llclose(int showStatistics) {
             perror("ERROR: Timeout during receiving UA frame\n");
             free(frameBufferSend);
             free(frameBufferReceive);
-            return ERROR;
+            return -1;
         }
         else {
             printf("UA frame received\n");
@@ -909,12 +901,11 @@ int llclose(int showStatistics) {
     
     if (showStatistics == TRUE){
         printf ("Total time = %f seconds\n",
-         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
-         (double) (tv2.tv_sec - tv1.tv_sec));
+        (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+        (double) (tv2.tv_sec - tv1.tv_sec));
     }
     return clstat;
 }
-
 
 
 

@@ -3,6 +3,12 @@
 
 #ifndef _LINK_LAYER_H_
 #define _LINK_LAYER_H_
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/time.h>
 
 typedef enum
 {
@@ -26,6 +32,21 @@ typedef struct
 // MISC
 #define FALSE 0
 #define TRUE 1
+
+// Build a supervision frame
+// Arguments: 
+//  frame - pointer to frame
+//  address - address (receiver/sender)
+//  control - message control
+void buildFrameSupervision(unsigned char* frame, const unsigned char address, const unsigned char control);
+
+// Build a information frame
+// Arguments:
+//  frame - pointer to frame
+//  data - information data
+//  control - I(0) / I(1) control
+//  bytes - number of data bytes
+void buildFrameInformation(unsigned char* frame, const unsigned char* data, const unsigned char control, const int bytes);
 
 // Open a connection using the "port" parameters defined in struct linkLayer.
 // Return "1" on success or "-1" on error.

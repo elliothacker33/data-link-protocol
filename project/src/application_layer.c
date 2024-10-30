@@ -2,16 +2,8 @@
 
 #include "application_layer.h"
 #include "link_layer.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
 
 // Definitions
-
-// Results
-#define OK 0
-#define ERROR -1
 // Booleans
 #define FALSE 0
 #define TRUE 1
@@ -23,17 +15,18 @@
 #define FILE_SIZE 0x00
 #define FILE_NAME 0x01
 
+
 long getFileSize(FILE* fptr){
 
-    if ((fseek(fptr, 0, SEEK_END)) == ERROR) {
+    if ((fseek(fptr, 0, SEEK_END)) == -1) {
         perror("ERROR: Unable to seek to end of file\n");
-        exit(ERROR);
+        exit(-1);
     }
 
     long fileSize = ftell(fptr);
-    if (fileSize == ERROR){
+    if (fileSize == -1){
         perror("ERROR: Unable to obtain file size\n");
-        exit(ERROR);
+        exit(-1);
     }
     rewind(fptr);
     return fileSize;
@@ -48,7 +41,7 @@ unsigned char* buildControlPacket(long fileSize, const char* filename, int* size
     unsigned char* controlPacket = (unsigned char*)malloc((*sizePacket) * sizeof(unsigned char));
     if (controlPacket == NULL){
         perror("ERROR: Unable to allocate memory\n");
-        exit(ERROR);
+        exit(-1);
     }
 
     controlPacket[0] = control; // C
@@ -78,7 +71,7 @@ unsigned char* buildDataPacket(FILE* fptr, int payload, int s, int* sizeDataPack
 
     if (dataPacket == NULL){
         perror("ERROR: Unable to allocate memory\n");
-        exit(ERROR);
+        exit(-1);
     }
 
     dataPacket[0] = DATA;
@@ -91,7 +84,7 @@ unsigned char* buildDataPacket(FILE* fptr, int payload, int s, int* sizeDataPack
 
         if (byte == EOF){
             perror("ERROR: Unexpected end of file\n");
-            exit(ERROR);
+            exit(-1);
         }
     
         dataPacket[4 + i] = (unsigned char) byte;
@@ -103,11 +96,10 @@ unsigned char* buildDataPacket(FILE* fptr, int payload, int s, int* sizeDataPack
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {   
-    // Ask for statistics
     
-    // int showStats;
-    // printf("0 - hide statistics 1 - show statistics: ");
-    // scanf("%d", &showStats);
+    int showStats;
+    printf("0 - hide statistics 1 - show statistics: ");
+    scanf("%d", &showStats);
    
 
     // Create Link Layer settings
@@ -124,16 +116,16 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         // Open connection
         openConnection.role = LlTx;
         fd = llopen(openConnection);
-        if (fd == ERROR){
+        if (fd == -1){
             perror("ERROR: Error opening connection\n");
-            exit(ERROR);
+            exit(-1);
         }
 
         // Open file 
         FILE* fPtr = fopen(filename, "rb");
         if (fPtr == NULL){
             perror("ERROR: Error opening file\n");
-            exit(ERROR);
+            exit(-1);
         }
 
         // File size
@@ -142,9 +134,9 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         // Start packet
         int sizeStartPacket = 0;
         unsigned char* startPacket = buildControlPacket(fileSize, filename, &sizeStartPacket,START);
-        if (llwrite(startPacket, sizeStartPacket) == ERROR){
+        if (llwrite(startPacket, sizeStartPacket) == -1){
             perror("ERROR: Error sending start packet\n");
-            exit(ERROR);
+            exit(-1);
         }
         free(startPacket);
 
@@ -166,9 +158,9 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             unsigned char* dataPacket = buildDataPacket(fPtr, usePayload, s, &sizeDataPacket);
             
 
-            if (llwrite(dataPacket, sizeDataPacket) == ERROR){
+            if (llwrite(dataPacket, sizeDataPacket) == -1){
                 perror("ERROR: Error sending data packet\n");
-                exit(ERROR);
+                exit(-1);
             }
 
             free(dataPacket);
@@ -183,26 +175,25 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         // End packet
         int sizeEndPacket = 0;
         unsigned char* endPacket = buildControlPacket(fileSize, filename, &sizeEndPacket,END);
-        if (llwrite(endPacket, sizeEndPacket) == ERROR){
+        if (llwrite(endPacket, sizeEndPacket) == -1){
             perror("ERROR: Error sending start packet\n");
-            exit(ERROR);
+            exit(-1);
         }
+
         free(endPacket);
 
-        // Close file
-        int result = fclose(fPtr);
-        if (result == ERROR){
+        if (fclose(fPtr) == -1){
             perror("ERROR: Error closing file\n");
-            exit(ERROR);
+            exit(-1);
         }
 
 
         // Close connection
         int closeConnection;
-        closeConnection = llclose(1);
-        if (closeConnection == ERROR){
+        closeConnection = llclose(showStats);
+        if (closeConnection == -1){
             perror("ERROR: Error closing connection\n");
-            exit(ERROR);
+            exit(-1);
         }
 
     }
@@ -211,19 +202,20 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         openConnection.role = LlRx;
         fd = llopen(openConnection);
 
-        if (fd == ERROR) {
+        if (fd == -1) {
             perror("Error: Error opening connection");
-            exit(ERROR);
+            exit(-1);
         }
 
         unsigned char* packet = (unsigned char*) malloc((MAX_PAYLOAD_SIZE + 4)*sizeof(unsigned char));
         if (packet == NULL) {
             perror("ERROR: Unable to allocate memory");
-            exit(ERROR);
+            exit(-1);
         }
 
         while (TRUE){
             int size = llread(packet);
+
             if (size > 0){
                 if (packet[0] != START){
                     perror("Unexpected START packet");
@@ -238,23 +230,40 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         if (file == NULL){
             perror("ERROR: Error opening file\n");
-            exit(ERROR);
+            free(packet);
+            exit(-1);
         }
 
+        int expectedSequenceNumber = 0;
         while (TRUE) {
             int size = llread(packet);
-
-            if (packet[0] == END){
-                break;
-            }
+            
             if (size > 0){
-                fwrite(packet+4, sizeof(unsigned char), size-4, file);
+                if (packet[0] == DATA){
+                    if (packet[1] == expectedSequenceNumber){
+                        expectedSequenceNumber = (expectedSequenceNumber + 1) % 100;
+                        fwrite(packet+4, sizeof(unsigned char), size-4, file);
+                    }
+                    else{
+                        perror("Unexpected DATA packet");
+                        free(packet);
+                        exit(-1);
+                    }
+                }
+                else if (packet[0] == END){
+                    break;
+                }
             }
         }
+        
+        free(packet);
+        
+        if (fclose(file)== -1){
+            perror("ERROR: Error closing file\n");
+            exit(-1);
+        }
 
-        fclose(file);
-
-        fd = llclose(1);
+        fd = llclose(showStats);
         if (fd == -1){
             perror("Error: Error clsosing connection");
             exit(-1);
