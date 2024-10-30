@@ -349,7 +349,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     alarmRinging = FALSE;
 
     while (alarmCount < nRetransmissions) {
-        
+
         // Sending information frame
         if (alarmRinging == FALSE || rejected_frame == TRUE) {
             
