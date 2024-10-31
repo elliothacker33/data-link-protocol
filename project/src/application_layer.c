@@ -258,7 +258,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         
         free(packet);
         
-        if (fclose(file)== -1){
+        if (fclose(file) == -1){
             perror("ERROR: Error closing file\n");
             exit(-1);
         }

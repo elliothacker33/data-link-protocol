@@ -125,7 +125,7 @@ int llopen(LinkLayer connectionParameters)
 
     if (sigaction(SIGALRM, &sa, 0) == -1){
         perror("ERROR: Setting signal handler\n");
-        exit(-1);
+        return -1;
     }
 
     if (role == LlTx)
@@ -144,7 +144,7 @@ int llopen(LinkLayer connectionParameters)
                 if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
                 {
                     perror("Failed to write SET frame\n");
-                    exit(-1);
+                    return -1;
                 }
             }
 
@@ -192,16 +192,16 @@ int llopen(LinkLayer connectionParameters)
                     }
                     else {
                         state = S_WAITING_FLAG;
+                        break;
                     }
-                    break;
-                    default:
-                        state = S_WAITING_FLAG;
+                    case S_STOP_STATE:
+                        break;
                 }
             }
         }
         if (state != S_STOP_STATE){
             perror("Failed to establish connection\n");
-            exit(-1);
+            return -1;
         }
     }
     else if (connectionParameters.role == LlRx)
@@ -249,15 +249,16 @@ int llopen(LinkLayer connectionParameters)
                         if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
                         {
                             perror("Failed to write UA frame\n");
-                            exit(-1);
+                            return -1;
                         }
                         state = S_STOP_STATE;
                     }
-                    else
+                    else {
                         state = S_WAITING_FLAG;
-                    break;
-                    default:
-                        state = S_WAITING_FLAG;
+                        break;
+                    }
+                    case S_STOP_STATE:
+                        break;
                 }
             }
         }
@@ -465,7 +466,7 @@ int llread(unsigned char *packet)
     unsigned char byte_read = 0;
     unsigned char received_IF = 0;
     int byte_nr = 0;
-    while (state != I_STOP_STATE) {
+    while (TRUE) {
         if (readByteSerialPort(&byte_read) > 0) {
             switch (state) {
                 case I_WAITING_FLAG:
@@ -525,7 +526,6 @@ int llread(unsigned char *packet)
                         {
                             // Frame received, ready to receive next frame
                             if (C_IF(Ns) == received_IF) {
-                                state = I_STOP_STATE;
                                 Ns ^= 1;
 
                                 unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
@@ -533,7 +533,7 @@ int llread(unsigned char *packet)
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write RR frame");
-                                    exit(-1);
+                                    return -1;
                                 }
                                 printf("Writing RR(%d) frame\n", Ns);
                                 return byte_nr;
@@ -542,14 +542,13 @@ int llread(unsigned char *packet)
                             // Duplicate frame, discarding
                             else
                             {
-                                state = I_STOP_STATE;
 
                                 unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, RR(Ns),A0);
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write RR packet");
-                                    exit(-1);
+                                    return -1;
                                 }
                                 printf("Duplicate frame, writing RR(%d) frame\n", Ns);
                                 // ignore packet received till now
@@ -566,20 +565,19 @@ int llread(unsigned char *packet)
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write REJ frame\n");
-                                    exit(-1);
+                                    return -1;
                                 }
                                 printf("Writing REJ(%d) frame\n", received_IF >> 7);
                                 return -1;
                             }
                             else
                             {
-                                state = I_STOP_STATE;
                                 unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, RR(Ns),A0);
                                 if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
                                 {
                                     perror("Failed to write RR frame\n");
-                                    exit(-1);
+                                    return -1;
                                 }
                                 // ignore packet received till now
                                 return 0;
@@ -603,7 +601,6 @@ int llread(unsigned char *packet)
             }
         }
     }
-    return -1;
 }
 
 int llclose(int showStatistics) {
@@ -654,7 +651,7 @@ int llclose(int showStatistics) {
                     perror("Error writing bytes to serial port\n");
                     free(frameBufferSend);
                     free(frameBufferReceive);
-                    exit(-1);
+                    return -1;
                 } else {
                     printf("DISC frame sent, bytes written = %d \n", byte);
                 }
@@ -706,10 +703,10 @@ int llclose(int showStatistics) {
                             alarm(0);
                         } else {
                             state = S_WAITING_FLAG;
+                            break;
                         }
+                    case S_STOP_STATE:
                         break;
-                    default:
-                        state = S_WAITING_FLAG;
                 }
             }
         }
@@ -791,10 +788,11 @@ int llclose(int showStatistics) {
                             state = S_STOP_STATE;
                         } else {
                             state = S_WAITING_FLAG;
+                            break;
                         }
+
+                    case S_STOP_STATE:
                         break;
-                    default:
-                        state = S_WAITING_FLAG;
                 }
             }
         }
@@ -868,10 +866,11 @@ int llclose(int showStatistics) {
                             alarm(0);
                         } else {
                             state = S_WAITING_FLAG;
+                            break;
                         }
+
+                    case S_STOP_STATE:
                         break;
-                    default:
-                        state = S_WAITING_FLAG;
                 }
             }
         }

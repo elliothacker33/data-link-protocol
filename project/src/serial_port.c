@@ -2,13 +2,11 @@
 // DO NOT CHANGE THIS FILE
 
 #include "serial_port.h"
-
 #include <fcntl.h>
 #include <stdio.h>
-#include <string.h>
-#include <errno.h>  
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <string.h>
 #include <termios.h>
 #include <unistd.h>
 
