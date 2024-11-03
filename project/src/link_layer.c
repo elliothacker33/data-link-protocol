@@ -11,6 +11,9 @@ int timeout;
 int nRetransmissions;
 int alarmRinging = FALSE;
 int alarmCount = 0;
+int TotalAlarmCount = 0;
+int alarmInterrupted = 0;
+int baudRate;
 
 // Definitions
 // Booleans
@@ -114,6 +117,7 @@ int llopen(LinkLayer connectionParameters)
     role = connectionParameters.role;
     timeout = connectionParameters.timeout;
     nRetransmissions = connectionParameters.nRetransmissions;
+    baudRate = connectionParameters.baudRate;
 
 
     SupervisionState state = S_WAITING_FLAG;
@@ -130,21 +134,29 @@ int llopen(LinkLayer connectionParameters)
 
     if (role == LlTx)
     {
+        int lastAlarmCount = 0;
 
         while (state != S_STOP_STATE && alarmCount < nRetransmissions)
         {
             if (alarmRinging == FALSE)
-            {
+            {   
+                lastAlarmCount = alarmCount;
                 alarm(timeout); // Set alarm for 3 seconds
                 alarmRinging = TRUE;
                 state = S_WAITING_FLAG;
 
                 // Send the SET message
                 unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, SET, A0 ^ SET, FLAG};
-                if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
-                {
-                    perror("Failed to write SET frame\n");
-                    return -1;
+                if (writeBytesSerialPort(buf, FRAME_SIZE_S) != FRAME_SIZE_S)
+                {   
+                    perror("Error writing SET frame to serial port\n");
+                    alarm(0);
+                    if (alarmCount == lastAlarmCount){
+                        alarmRinging = FALSE;
+                        alarmCount++;
+                        alarmInterrupted++;
+                    }
+                    continue;
                 }
             }
 
@@ -186,6 +198,10 @@ int llopen(LinkLayer connectionParameters)
                     if (byte_read == FLAG){
                         state = S_STOP_STATE;
                         alarm(0);
+                        if (lastAlarmCount == alarmCount){
+                            alarmCount++;
+                            alarmInterrupted++;
+                        }
                         printf("Connection established\n");
                         gettimeofday(&tv1, NULL);
                         printf("Starting counting now\n");
@@ -199,10 +215,13 @@ int llopen(LinkLayer connectionParameters)
                 }
             }
         }
+
+        TotalAlarmCount += alarmCount;
         if (state != S_STOP_STATE){
             perror("Failed to establish connection\n");
             return -1;
         }
+
     }
     else if (connectionParameters.role == LlRx)
     {
@@ -246,12 +265,16 @@ int llopen(LinkLayer connectionParameters)
                     if (byte_read == FLAG)
                     {
                         unsigned char buf[FRAME_SIZE_S] = {FLAG, A0, UA, A0 ^ UA, FLAG};
-                        if (writeBytesSerialPort(buf, FRAME_SIZE_S) == -1)
+                        if (writeBytesSerialPort(buf, FRAME_SIZE_S) != FRAME_SIZE_S)
                         {
                             perror("Failed to write UA frame\n");
-                            return -1;
+                            state = S_WAITING_FLAG;
+                            break;
                         }
-                        state = S_STOP_STATE;
+                        else
+                        {
+                            state = S_STOP_STATE;
+                        }
                     }
                     else {
                         state = S_WAITING_FLAG;
@@ -361,13 +384,17 @@ int llwrite(const unsigned char *buf, int bufSize) {
             alarm(timeout);
             
             byte = writeBytesSerialPort(frameBufferSend, frameBytes);
-            if (byte == -1) {
+            if (byte != frameBytes) {
                 perror("ERROR: writing bytes to serial port\n");
-                free(frameBufferSend);
-                free(frameBufferReceive);
-                return -1;
+                alarm(0);
+                if (alarmCount == lastAlarmCount){
+                    alarmRinging = FALSE;
+                    alarmCount++;
+                    alarmInterrupted++;
+                }
+                continue;
             } else {
-                printf("I%d sent, bytes written = %d \n",Ns,byte);
+                printf("I(%d) sent, bytes written = %d \n",Ns,byte);
             }
         }
 
@@ -415,6 +442,10 @@ int llwrite(const unsigned char *buf, int bufSize) {
                         frameBufferReceive[4] = buffer_read;
                         state = S_STOP_STATE;
                         alarm(0);
+                        if (alarmCount == lastAlarmCount){
+                            alarmCount++;
+                            alarmInterrupted++;
+                        }
                     } else {
                         state = S_WAITING_FLAG;
                     }
@@ -429,13 +460,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 printf("REJ(%d) received\n", frameBufferReceive[2] == REJ(0) ? 0 : 1);
                 printf("Frames sent with errors\n");
                 rejected_frame = TRUE;
-                if (alarmCount == lastAlarmCount) {
-                    alarmCount++;
-                    printf("Alarm #%d finished before expected time (REJ)\n", alarmCount);
-                }
-                else{
-                    printf("Alarm #%d expired\n", alarmCount);
-                }
             } 
             else if ((frameBufferReceive[2] == RR(0) && Ns == 1) || (frameBufferReceive[2] == RR(1) && Ns == 0)) {
                 Ns ^= 1;
@@ -443,6 +467,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 printf("Frames sent and received successfully\n");
                 free(frameBufferSend);
                 free(frameBufferReceive);
+                TotalAlarmCount += alarmCount;
                 return frameBytes;
             }
         }
@@ -530,13 +555,14 @@ int llread(unsigned char *packet)
 
                                 unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, A0, RR(Ns));
-                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
+                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) != FRAME_SIZE_S) 
                                 {
                                     perror("Failed to write RR frame");
                                     return -1;
                                 }
                                 printf("Writing RR(%d) frame\n", Ns);
                                 return byte_nr;
+
                             }
 
                             // Duplicate frame, discarding
@@ -545,11 +571,12 @@ int llread(unsigned char *packet)
 
                                 unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, RR(Ns),A0);
-                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
+                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) != FRAME_SIZE_S) 
                                 {
                                     perror("Failed to write RR packet");
                                     return -1;
                                 }
+
                                 printf("Duplicate frame, writing RR(%d) frame\n", Ns);
                                 // ignore packet received till now
                                 return 0;
@@ -562,19 +589,21 @@ int llread(unsigned char *packet)
                             {
                                 unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, A0,REJ(received_IF >> 7));
-                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
+                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) != FRAME_SIZE_S)
                                 {
                                     perror("Failed to write REJ frame\n");
                                     return -1;
                                 }
+    
                                 printf("Writing REJ(%d) frame\n", received_IF >> 7);
                                 return -1;
+                            
                             }
                             else
                             {
                                 unsigned char* frame = (unsigned char*) malloc (FRAME_SIZE_S*sizeof(unsigned char));
                                 buildFrameSupervision(frame, RR(Ns),A0);
-                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) == -1)
+                                if (writeBytesSerialPort(frame, FRAME_SIZE_S) != FRAME_SIZE_S)
                                 {
                                     perror("Failed to write RR frame\n");
                                     return -1;
@@ -617,6 +646,7 @@ int llclose(int showStatistics) {
     SupervisionState state;
     alarmCount = 0;
     alarmRinging = FALSE;
+    int lastAlarmCount = 0;
 
     // Allocate memory for the frame buffers
     unsigned char* frameBufferSend = malloc(FRAME_SIZE_S * sizeof(unsigned char));
@@ -642,16 +672,21 @@ int llclose(int showStatistics) {
         while (state != S_STOP_STATE && alarmCount < nRetransmissions) {
             // Sending DISC frame
             if (!alarmRinging) {
+                lastAlarmCount = alarmCount;
                 alarmRinging = TRUE;
                 alarm(timeout);
                 state = S_WAITING_FLAG;
 
                 byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
-                if (byte == -1) {
-                    perror("Error writing bytes to serial port\n");
-                    free(frameBufferSend);
-                    free(frameBufferReceive);
-                    return -1;
+                if (byte != FRAME_SIZE_S) {
+                    perror("Error writing DISC frame to serial port\n");
+                    alarm(0);
+                    if (alarmCount == lastAlarmCount){
+                        alarmRinging = FALSE;
+                        alarmCount++;
+                        alarmInterrupted++;
+                    }
+                    continue;
                 } else {
                     printf("DISC frame sent, bytes written = %d \n", byte);
                 }
@@ -701,6 +736,10 @@ int llclose(int showStatistics) {
                             frameBufferReceive[4] = buffer_read;
                             state = S_STOP_STATE;
                             alarm(0);
+                            if (alarmCount == lastAlarmCount){
+                                alarmCount++;
+                                alarmInterrupted++;
+                            }
                         } else {
                             state = S_WAITING_FLAG;
                             break;
@@ -710,6 +749,8 @@ int llclose(int showStatistics) {
                 }
             }
         }
+
+        TotalAlarmCount += alarmCount;
 
         if (state != S_STOP_STATE) {
             perror("ERROR: Timeout during receiving DISC\n");
@@ -726,7 +767,8 @@ int llclose(int showStatistics) {
         buildFrameSupervision(frameBufferSend, A1, UA);
 
         byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
-        if (byte == -1) {
+
+        if (byte != FRAME_SIZE_S) {
             perror("Error writing bytes to serial port\n");
             free(frameBufferSend);
             free(frameBufferReceive);
@@ -734,6 +776,7 @@ int llclose(int showStatistics) {
         } else {
             printf("UA frame sent, bytes written = %d\n",byte);
         }
+
         gettimeofday(&tv2, NULL);
         printf("Stopping counting now\n");
 
@@ -806,16 +849,21 @@ int llclose(int showStatistics) {
             
             // Sending DISC frame
             if (!alarmRinging) {
+                lastAlarmCount = alarmCount;
                 alarmRinging = TRUE;
                 alarm(timeout);
                 state = S_WAITING_FLAG;
 
                 byte = writeBytesSerialPort(frameBufferSend, FRAME_SIZE_S);
-                if (byte == -1) {
-                    perror("Error writing bytes to serial port\n");
-                    free(frameBufferSend);
-                    free(frameBufferReceive);
-                    return -1;
+                if (byte != FRAME_SIZE_S) {
+                    perror("Error writing DISC frame to serial port\n");
+                    alarm(0);
+                    if (alarmCount == lastAlarmCount){
+                        alarmRinging = FALSE;
+                        alarmCount++;
+                        alarmInterrupted++;
+                    }
+                    continue;
                 } else {
                     printf("DISC frame sent, bytes written = %d\n",byte);
                 }
@@ -823,6 +871,7 @@ int llclose(int showStatistics) {
 
             // Reading UA frame
             byte = readByteSerialPort(&buffer_read);
+
             if (byte > 0) {
                 switch (state) {
                     case S_WAITING_FLAG:
@@ -864,6 +913,10 @@ int llclose(int showStatistics) {
                             frameBufferReceive[4] = buffer_read;
                             state = S_STOP_STATE;
                             alarm(0);
+                            if (alarmCount == lastAlarmCount){
+                                alarmCount++;
+                                alarmInterrupted++;
+                            }
                         } else {
                             state = S_WAITING_FLAG;
                             break;
@@ -874,7 +927,7 @@ int llclose(int showStatistics) {
                 }
             }
         }
-
+        TotalAlarmCount += alarmCount;
         if (state != S_STOP_STATE) {
             perror("ERROR: Timeout during receiving UA frame\n");
             free(frameBufferSend);
@@ -899,10 +952,22 @@ int llclose(int showStatistics) {
     }
     
     if (showStatistics == TRUE){
+        if (role == LlTx){
+            printf("Stats - Tx:\n");
+        }
+        else{
+            printf("Stats - Rx:\n");
+        }
+
+        printf("Total alarms triggered: %d\n", TotalAlarmCount);
+        printf("Alarms interrupted: %d\n", alarmInterrupted);
+        printf("Alarms completed without interruption: %d\n", TotalAlarmCount - alarmInterrupted);
+
         printf ("Total time = %f seconds\n",
         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
         (double) (tv2.tv_sec - tv1.tv_sec));
     }
+    
     return clstat;
 }
 
