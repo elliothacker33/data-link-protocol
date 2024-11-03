@@ -22,7 +22,7 @@ int baudRate;
 // Sizes
 #define FRAME_SIZE_S 5
 // Flag
-#define FLAG 0x7E // Initial and Final delimiter flag
+#define FLAG 0x7E 
 
 // Address
 #define A0 0x03 // Sender
@@ -64,7 +64,7 @@ typedef enum InformationState
     I_STOP_STATE
 } InformationState;
 
-unsigned char Ns;
+unsigned char Ns; // expected number for frame
 
 void alarmHandler(int signal)
 {
@@ -141,7 +141,7 @@ int llopen(LinkLayer connectionParameters)
             if (alarmRinging == FALSE)
             {   
                 lastAlarmCount = alarmCount;
-                alarm(timeout); // Set alarm for 3 seconds
+                alarm(timeout); 
                 alarmRinging = TRUE;
                 state = S_WAITING_FLAG;
 
@@ -155,6 +155,7 @@ int llopen(LinkLayer connectionParameters)
                         alarmRinging = FALSE;
                         alarmCount++;
                         alarmInterrupted++;
+                        printf("Alarm %d interrupted\n", alarmCount);
                     }
                     continue;
                 }
@@ -201,6 +202,7 @@ int llopen(LinkLayer connectionParameters)
                         if (lastAlarmCount == alarmCount){
                             alarmCount++;
                             alarmInterrupted++;
+                            printf("Alarm %d interrupted\n", alarmCount);
                         }
                         printf("Connection established\n");
                         gettimeofday(&tv1, NULL);
@@ -356,7 +358,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
        
     }
     
-    // Supervision frame received
     unsigned char* frameBufferReceive = (unsigned char*)malloc(FRAME_SIZE_S * sizeof(unsigned char));
     if (frameBufferReceive == NULL) {
         perror("ERROR: Allocating memory for frameBufferReceive\n");
@@ -374,7 +375,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     while (alarmCount < nRetransmissions) {
 
-        // Sending information frame
         if (alarmRinging == FALSE || rejected_frame == TRUE) {
             
             lastAlarmCount = alarmCount;
@@ -391,6 +391,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                     alarmRinging = FALSE;
                     alarmCount++;
                     alarmInterrupted++;
+                    printf("Alarm %d interrupted\n", alarmCount);
                 }
                 continue;
             } else {
@@ -445,6 +446,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                         if (alarmCount == lastAlarmCount){
                             alarmCount++;
                             alarmInterrupted++;
+                            printf("Alarm %d interrupted\n", alarmCount);
                         }
                     } else {
                         state = S_WAITING_FLAG;
@@ -486,7 +488,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
 int llread(unsigned char *packet)
 {
 
-    // State machine
     InformationState state = I_WAITING_FLAG;
     unsigned char byte_read = 0;
     unsigned char received_IF = 0;
@@ -509,9 +510,7 @@ int llread(unsigned char *packet)
                     }
                     break;
                 case I_WAITING_CTRL:
-                    // DUVIDA: Se eu receber o frame nao esperado, é um duplicado? E transmitter guarda o frame anterior ao enviado,
-                    // e tem capacidade para enviá-lo caso receba um rej?. i.e o q fazer se no receiver eu receber um Information frame number 
-                    // diferente do esperado??
+
                     if (byte_read == C_IF(0) || byte_read == C_IF(1)) {
                         received_IF = byte_read;
                         state = I_WAITING_BCC1;
@@ -634,7 +633,6 @@ int llread(unsigned char *packet)
 
 int llclose(int showStatistics) {
 
-    // Signal handling
     struct sigaction sa;
     sa.sa_handler = alarmHandler;
     sa.sa_flags = 0;
@@ -648,7 +646,6 @@ int llclose(int showStatistics) {
     alarmRinging = FALSE;
     int lastAlarmCount = 0;
 
-    // Allocate memory for the frame buffers
     unsigned char* frameBufferSend = malloc(FRAME_SIZE_S * sizeof(unsigned char));
     if (frameBufferSend == NULL) {
         perror("ERROR: Allocating memory for frameBufferSend\n");
@@ -662,7 +659,6 @@ int llclose(int showStatistics) {
 
     if (role == LlTx) {
         printf("LLCLOSE: Lltx\n");
-        // Build supervision frame
         buildFrameSupervision(frameBufferSend, A0, DISC);
 
         unsigned char buffer_read = 0;
@@ -685,6 +681,7 @@ int llclose(int showStatistics) {
                         alarmRinging = FALSE;
                         alarmCount++;
                         alarmInterrupted++;
+                        printf("Alarm %d interrupted\n", alarmCount);
                     }
                     continue;
                 } else {
@@ -739,6 +736,7 @@ int llclose(int showStatistics) {
                             if (alarmCount == lastAlarmCount){
                                 alarmCount++;
                                 alarmInterrupted++;
+                                printf("Alarm %d interrupted\n", alarmCount);
                             }
                         } else {
                             state = S_WAITING_FLAG;
@@ -786,7 +784,6 @@ int llclose(int showStatistics) {
         int byte;
         state = S_WAITING_FLAG;
 
-        // Receiver logic
         while (state != S_STOP_STATE) {
             byte = readByteSerialPort(&buffer_read);
             if (byte > 0) {
@@ -862,6 +859,7 @@ int llclose(int showStatistics) {
                         alarmRinging = FALSE;
                         alarmCount++;
                         alarmInterrupted++;
+                        printf("Alarm %d interrupted\n", alarmCount);
                     }
                     continue;
                 } else {
@@ -916,6 +914,7 @@ int llclose(int showStatistics) {
                             if (alarmCount == lastAlarmCount){
                                 alarmCount++;
                                 alarmInterrupted++;
+                                printf("Alarm %d interrupted\n", alarmCount);
                             }
                         } else {
                             state = S_WAITING_FLAG;
@@ -939,11 +938,9 @@ int llclose(int showStatistics) {
         }
     }
 
-    // Free allocated memory
     free(frameBufferSend);
     free(frameBufferReceive);
 
-    // Close the serial port
     int clstat = closeSerialPort();
 
     if (clstat < 0) {

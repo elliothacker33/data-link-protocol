@@ -102,12 +102,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     scanf("%d", &showStats);
    
 
-    // Create Link Layer settings
     LinkLayer openConnection;
-    strcpy(openConnection.serialPort, serialPort); // serial port
-    openConnection.baudRate = baudRate; // baud rate
-    openConnection.nRetransmissions = nTries; // number of retries
-    openConnection.timeout = timeout; // timeout 
+    strcpy(openConnection.serialPort, serialPort);
+    openConnection.baudRate = baudRate; 
+    openConnection.nRetransmissions = nTries; 
+    openConnection.timeout = timeout; 
     int fd;
 
 
@@ -121,14 +120,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             exit(-1);
         }
 
-        // Open file 
         FILE* fPtr = fopen(filename, "rb");
         if (fPtr == NULL){
             perror("ERROR: Error opening file\n");
             exit(-1);
         }
 
-        // File size
         long fileSize = getFileSize(fPtr);
 
         // Start packet
@@ -154,7 +151,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 usePayload = sendPayload;
             }
 
-            // Data packet
             unsigned char* dataPacket = buildDataPacket(fPtr, usePayload, s, &sizeDataPacket);
             
 
@@ -187,10 +183,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             exit(-1);
         }
 
-
-        // Close connection
-        int closeConnection;
-        closeConnection = llclose(showStats);
+        int closeConnection = llclose(showStats);
         if (closeConnection == -1){
             perror("ERROR: Error closing connection\n");
             exit(-1);
