@@ -941,6 +941,7 @@ int llclose(int showStatistics) {
     free(frameBufferSend);
     free(frameBufferReceive);
 
+    sleep(1);
     int clstat = closeSerialPort();
 
     if (clstat < 0) {
