@@ -4,6 +4,7 @@
 #ifndef _LINK_LAYER_H_
 #define _LINK_LAYER_H_
 #include <stdio.h>
+#include <termios.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>

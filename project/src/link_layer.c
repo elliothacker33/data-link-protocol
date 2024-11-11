@@ -14,6 +14,7 @@ int alarmCount = 0;
 int TotalAlarmCount = 0;
 int alarmInterrupted = 0;
 int baudRate;
+int cable_fd;
 
 // Definitions
 // Booleans
@@ -114,6 +115,7 @@ int llopen(LinkLayer connectionParameters)
     printf("Serial port opened\n");
 
     // Define parameters
+    cable_fd = fd;
     role = connectionParameters.role;
     timeout = connectionParameters.timeout;
     nRetransmissions = connectionParameters.nRetransmissions;
@@ -912,6 +914,7 @@ int llclose(int showStatistics) {
                             state = S_STOP_STATE;
                             alarm(0);
                             if (alarmCount == lastAlarmCount){
+                                tcflush(cable_fd,TCIOFLUSH);
                                 alarmCount++;
                                 alarmInterrupted++;
                                 printf("Alarm %d interrupted\n", alarmCount);
@@ -941,7 +944,7 @@ int llclose(int showStatistics) {
     free(frameBufferSend);
     free(frameBufferReceive);
 
-    sleep(1);
+    sleep(1); // NOTE: Wait for UA to arrive on receiver
     int clstat = closeSerialPort();
 
     if (clstat < 0) {
